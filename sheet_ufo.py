@@ -622,76 +622,19 @@ class SheetTree(object):
     
     s_Axis = newNode.axis
     s_Center = newNode.bendCenter
-    edge_vec = P_edge.Vertexes[0].copy().Point
     
     #Start to investigate the angles at self.__Shape.Faces[face_idx].ParameterRange[0]
     angle_0 = theFace.ParameterRange[0]
     angle_1 = theFace.ParameterRange[1]
-    #length_0 = theFace.ParameterRange[2]
-    #length_1 = theFace.ParameterRange[3]
-    
-    edgeAngle, edgePar = theFace.Surface.parameter(edge_vec)
-
-    #print 'the angles: ', angle_0, ' ', angle_1, ' ', edgeAngle, ' ', edgeAngle - 2*math.pi
-    
-    
-    '''
-    tanPos = self.__Shape.Faces[face_idx].valueAt(angle_0, length_0)
-    tan_vec = radial_vector(tanPos, s_Center, s_Axis)
-      
-    first_vec = radial_vector(edge_vec, s_Center, s_Axis)
-    cross_vec = first_vec.cross(tan_vec)
-    triple_prod = cross_vec.dot(s_Axis)
-    
-    print 'triple_prod:', triple_prod
-    '''
-    
-    
-    
-    
-    
-    
     
     # idea: identify the angle at edge_vec = P_edge.Vertexes[0].copy().Point
     # This will be = angle_start
-    # identify rotSign from angle_end minus angle_start
-    # The tangentvector will be in direction of position at angle_sta + rotSign*90°
     # calculate the tan_vec from valueAt
-    '''
-    parPos00 = self.__Shape.Faces[face_idx].valueAt(angle_0,length_0)
-    parPos01 = self.__Shape.Faces[face_idx].valueAt(angle_0,length_1)
-    parPos10 = self.__Shape.Faces[face_idx].valueAt(angle_1,length_0)
-    parPos11 = self.__Shape.Faces[face_idx].valueAt(angle_1,length_1)
-    if equal_vector(edge_vec, parPos00):
-      FreeCAD.Console.PrintLog("got case 00\n")
-      angle_start = angle_0
-      angle_end = angle_1
-      len_start = length_0
-    else:
-      if equal_vector(edge_vec, parPos01):
-        FreeCAD.Console.PrintLog("got case 01\n")
-        angle_start = angle_0
-        angle_end = angle_1
-        len_start = length_1
-      else:
-        if equal_vector(edge_vec, parPos10):
-          FreeCAD.Console.PrintLog("got case 10\n")
-          angle_start = angle_1
-          angle_end = angle_0
-          len_start = length_0
-        else:
-          if equal_vector(edge_vec, parPos11):
-            FreeCAD.Console.PrintLog("got case 11\n") 
-            angle_start = angle_1
-            angle_end = angle_0
-            len_start = length_1
-          else:
-            newNode.analysis_ok = False
-            newNode.error_code = 16 # Analysis: did not find startangle of bend
-            self.error_code = 16
-            self.failed_face_idx = face_idx
-            FreeCAD.Console.PrintLog("did not found start angle, to do: fix me!\n")
-    '''
+
+    edge_vec = P_edge.Vertexes[0].copy().Point
+    edgeAngle, edgePar = theFace.Surface.parameter(edge_vec)
+
+    #print 'the angles: ', angle_0, ' ', angle_1, ' ', edgeAngle, ' ', edgeAngle - 2*math.pi
     
     if equal_angle(angle_0, edgeAngle):
       angle_start = angle_0
