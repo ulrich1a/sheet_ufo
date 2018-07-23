@@ -21,6 +21,12 @@
 #  MA 02110-1301, USA.
 #  
 #  
+# sheet_ufo.py git-version
+# July 2018
+# added sortEdgesTolerant: more robust generation of Wires for unbend Faces
+# generate fold lines, to be used in drawings of the unfolded part.
+# fixed calculation of Bend Angle, not working in some cases
+
 
 # sheet_ufo20.py
 # removal of dead code
@@ -396,6 +402,7 @@ class SheetTree(object):
       for sf_edge in self.f_list[i].Edges:
         if sf_edge.isSame(ise_edge):
           the_index = i
+          print 'got edge face: Face', str(i+1)
           break
       if the_index is not None:
         break
@@ -409,18 +416,28 @@ class SheetTree(object):
       vertList = []
       F_type = str(self.f_list[tree_node.idx].Surface)
       # now we need to search for vertexes with sheet_thickness_distance
-      #if F_type == "<Plane object>":
+      #fix me: get the maximal plus and minus distance to the plane or cylinder face
+      # only faces with zero distance and sheet_thickness_distance vertexes are 
+      # accepted as sheet edge faces.
+      minDist = 0.0
+      maxDist = 0.0
       for F_vert in self.f_list[i].Vertexes:
-        if self.isVertOpposite(F_vert, tree_node):
-          has_sheet_distance_vertex = True
-          if len(self.f_list[i].Edges)<5:
-            tree_node.nfIndexes.append(i)
-            self.index_list.remove(i)
-            #Part.show(self.f_list[i])
-          else:
-            # need to cut the face at the ends of ise_edge
-            self.divideEdgeFace(i, ise_edge, F_vert, tree_node)
-          break
+        vDist = self.getDistanceToFace(F_vert, tree_node)
+        if vDist > maxDist: maxDist = vDist
+        if vDist < minDist: minDist = vDist
+      maxDist = maxDist- self.__thickness
+      if (minDist > -self.cFaceTol) and (maxDist < self.cFaceTol) and (maxDist > -self.cFaceTol):
+
+        #if self.isVertOpposite(F_vert, tree_node):
+        has_sheet_distance_vertex = True
+        if len(self.f_list[i].Edges)<5:
+          tree_node.nfIndexes.append(i)
+          self.index_list.remove(i)
+          #Part.show(self.f_list[i])
+        else:
+          # need to cut the face at the ends of ise_edge
+          self.divideEdgeFace(i, ise_edge, F_vert, tree_node)
+          #break
 
     else:
       tree_node.analysis_ok = False 
@@ -445,7 +462,17 @@ class SheetTree(object):
     else:
       return False
 
-
+  def getDistanceToFace(self, theVert, theNode):
+    F_type = str(self.f_list[theNode.idx].Surface)
+    vF_vert = Base.Vector(theVert.X, theVert.Y, theVert.Z)
+    # a positive distance should go through the sheet metal 
+    if F_type == "<Plane object>":
+      dist = vF_vert.distanceToPlane (theNode.facePosi, theNode.axis)
+    if F_type == "<Cylinder object>":
+      dist = vF_vert.distanceToLine(theNode.bendCenter, theNode.axis) - self.f_list[theNode.idx].Surface.Radius
+      if theNode.bend_dir == "down":
+        dist = -dist
+    return dist
 
 
 
@@ -682,6 +709,24 @@ class SheetTree(object):
       newNode._trans_length = -newNode._trans_length
       # the _trans_length is always positive, due to correct tan_vec
       
+    cAngle_0 = self.__Shape.Faces[newNode.c_face_idx].ParameterRange[0]
+    cAngle_1 = self.__Shape.Faces[newNode.c_face_idx].ParameterRange[1]
+    
+    cFaceAngle = cAngle_1 - cAngle_0
+    
+    if newNode.bend_angle > 0:
+      if cFaceAngle > 0:
+        diffAngle = newNode.bend_angle - cFaceAngle
+      else:
+        diffAngle = newNode.bend_angle + cFaceAngle
+    else:
+      if cFaceAngle > 0:
+        diffAngle = cFaceAngle + newNode.bend_angle
+      else:
+        diffAngle = newNode.bend_angle - cFaceAngle
+      
+        
+    print 'node angles: ', newNode.bend_angle, ' ', diffAngle
 
 
 
@@ -801,7 +846,7 @@ class SheetTree(object):
 
 
       # Here was the old place to calculate the bend angle
-      self.getBendAngle(newNode, wires_e_lists)
+      #self.getBendAngle(newNode, wires_e_lists)
 
 
       # calculate mean point of face:
@@ -827,6 +872,9 @@ class SheetTree(object):
           newNode.nfIndexes.append(i)
           # Part.show(self.__Shape.Faces[newNode.c_face_idx])
           break
+
+      self.getBendAngle(newNode, wires_e_lists)
+
 
     # Part.show(self.__Shape.Faces[newNode.c_face_idx])
     # Part.show(self.__Shape.Faces[newNode.idx])
@@ -954,7 +1002,7 @@ class SheetTree(object):
     return rVec
 
 
-  def unbendFace(self, fIdx, bend_node, nullVec):
+  def unbendFace(self, fIdx, bend_node, nullVec, mode = 'side'):
     axis = bend_node.axis
     cent = bend_node.bendCenter
     bRad = bend_node.innerRadius
@@ -966,158 +1014,193 @@ class SheetTree(object):
     #aFace = aFace.removeSplitter()
     
     sign = bend_node.angleSign * -1.0
-    
     normVec = radial_vector(bend_node.p_edge.Vertexes[0].Point, cent, axis)
+    
+    def unbendPoint(poi):
+      compPoints = []
+      if mode == 'top':
+        for p in self.f_list[bend_node.p_node.idx].Vertexes:
+          compPoints.append(p.Point)
+        #need to copy the child face, if it exist and rotate and translate it.
+        # here the child Face to do
+        #for p in self.f_list[bend_node.p_node.idx].Vertexes:
+        #  compPoints.append(p.Point)
 
-    wireList = []
+      if mode == 'counter':
+        for p in self.f_list[bend_node.p_node.c_face_idx].Vertexes:
+          compPoints.append(p.Point)
+
+
+      gotPoint = False
+      for tPoint in compPoints:
+        if equal_vector(poi, tPoint):
+          print 'got a parent point at Face', fIdx + 1
+          bPoint = tPoint
+          gotPoint = True
+          break
+
+      if not gotPoint:
+        radVec = radial_vector(poi, cent, axis)
+        angle = sign * math.atan2(nullVec.cross(radVec).dot(-axis), nullVec.dot(radVec))
+        if angle < -math.pi/8:
+          angle = angle + 2*math.pi
+        rotVec = self.rotateVec(poi.sub(cent), sign*angle, axis)
+        bPoint = cent + rotVec + tanVec*transRad*angle
+      return bPoint
+    
     divisions = 12 # fix me! need a dependence on something useful.
-    j=0
-    #for fEdge in theCyl.Edges:
-    for fEdge in aFace.Edges:
-      eType = str(fEdge.Curve)
-      #print "the type of curve: ", eType
-      urollPts = []
-      
-      if ("<Ellipse object>" in eType):
-        minPar, maxPar = fEdge.ParameterRange
-        FreeCAD.Console.PrintLog("the Parameterrange: "+ str(minPar)+ " to " + str(maxPar)+ " Type: "+str(eType) + "\n")
-        iMulti = (maxPar-minPar)/divisions
-        
-        for i in range(divisions+1):
-          #print "j, i: ", j," ",i," ",fEdge.valueAt(minPar + i*iMulti)
-          posi = fEdge.valueAt(minPar + i*iMulti)
-          # calculate radius
-          # rad = posi.distanceToLine (cent, axis)
-          radVec = radial_vector(posi, cent, axis)
-          #angle = math.atan2(nullVec.cross(radVec).Length, nullVec.dot(radVec))
-          angle = sign * math.atan2(nullVec.cross(radVec).dot(-axis), nullVec.dot(radVec))
-          if (angle < 0.0001) and (angle > -0.001):
-            #print 'got none angle'
-            bPosi = posi
-          else:
-            if angle < -math.pi/8:
-              angle = angle + 2*math.pi
-            rotVec = self.rotateVec(posi.sub(cent), sign*angle, axis)
-            bPosi = cent + rotVec + tanVec*transRad*angle
-          urollPts.append(bPosi)
-        
-        uCurve = Part.BSplineCurve()
-        uCurve.interpolate(urollPts)
-        theCurve = uCurve.toShape()
-        wireList.append(theCurve)
-        #Part.show(theCurve, 'Elli'+str(j)+'_')
+    
+    
+    fWireList = aFace.Wires[:]
+    #newWires = []
+    edgeLists = []
 
-
-      elif "<Line" in eType:
-        #print 'j: ',j , ' eType: ', eType, ' fIdx: ', fIdx, ' verts: ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point
-        for lVert in fEdge.Vertexes:
-          posi = lVert.Point
-          radVec = radial_vector(posi, cent, axis)
-          angle = sign * math.atan2(nullVec.cross(radVec).dot(-axis), nullVec.dot(radVec))
-          angle2 = math.atan2(nullVec.cross(radVec).Length, nullVec.dot(radVec))
-          #if (angle < 0.0001) and (angle > -0.001):
-          if (angle < 0.0001):
-            #print 'got none angle'
-            bPosi = posi
-          else:
-            if angle < -math.pi/8:
-              angle = angle + 2*math.pi
-            rotVec = self.rotateVec(posi.sub(cent), sign*angle, axis)
-            
-            bPosi = cent + rotVec + tanVec*transRad*angle
-            #print 'Face', bend_node.idx + 1, ' in line the angle: ', sign, ' ', angle,  ' length angle: ', angle2
+    for aWire in fWireList:
+        idxList, conDict, lastCon = self.sortEdgesTolerant(aWire.Edges)
+        #cVert = Part.Vertex(lastCon)
+        uLastCon = unbendPoint(lastCon)
+        #print 'idxList: ', idxList, ' conDict: ', conDict, ' ', uLastCon
+        
+        eList = []  # is the list of unbend edges
+        j=0
+        for fEdgeIdx in idxList:
+          fEdge = aWire.Edges[fEdgeIdx]
+          eType = str(fEdge.Curve)
+          #print "the type of curve: ", eType
+          urollPts = []
           
-          urollPts.append(bPosi)
-        edgeL = Part.makeLine(urollPts[0], urollPts[1])
-        lWire = Part.Wire([edgeL])
-        wireList.append(edgeL)
-        #Part.show(lWire, 'Line'+str(j)+'_')
-
-      elif "Circle" in eType:  #fix me! need to check if circle ends are at different radii!
-        FreeCAD.Console.PrintLog('j: '+ str(j) + ' eType: '+ str(eType) + '\n')
-        parList = fEdge.ParameterRange
-        #print "the Parameterrange: ", parList[0], " , ", parList[1], " Type: ",eType
-        #axis_line = Part.makeLine(cent, cent + axis)
-        #Part.show(axis_line, 'axis_line'+ str(bend_node.idx+1)+'_')
-        #print 'Face', str(bend_node.idx+1), 'bAxis: ', axis, ' cAxis: ', fEdge.Curve.Axis
-        
-        for para in parList:
-          #print "parameter: ",fEdge.valueAt(para)
-          posi = fEdge.valueAt(para)
-          #posi_line = Part.makeLine(cent, posi)
-          #Part.show(posi_line, 'posi_line'+ str(bend_node.idx+1)+'_')
-
-          radVec = radial_vector(posi, cent, axis)
-          angle = sign * math.atan2(nullVec.cross(radVec).dot(-axis), nullVec.dot(radVec))
-          angle2 = math.atan2(nullVec.cross(radVec).Length, nullVec.dot(radVec))
-          #if (angle < 0.0001) and (angle > -0.001):
-          if (angle < 0.0001):
-            #print 'got none angle'
-            bPosi = posi
-          else:
-            if angle < -math.pi/8:
-              angle = angle + 2*math.pi
-            rotVec = self.rotateVec(posi.sub(cent), sign*angle, axis)
-            bPosi = cent + rotVec + tanVec*transRad*angle
-            #print 'Face', bend_node.idx + 1, ' in circle line the angle: ', sign, ' ', angle,  ' length angle: ', angle2
-            #radVec_line = Part.makeLine(posi, posi - radVec*bRad)
-            #Part.show(radVec_line, 'radVec_line'+ str(bend_node.idx+1)+'_')
-
-            #rotVec = self.rotateVec(posi.sub(cent), bend_node.bend_angle, axis)
-            #bPosi = cent + rotVec + tanVec*transRad*bend_node.bend_angle
-          urollPts.append(bPosi)
-        edgeL = Part.makeLine(urollPts[0], urollPts[1])
-        lWire = Part.Wire([edgeL])
-        wireList.append(edgeL)
-        #Part.show(lWire, 'CircleLine'+str(j)+'_')
-
-      elif ("<BSplineCurve object>" in eType):
-        minPar, maxPar = fEdge.ParameterRange
-        #print "the Parameterrange: ", minPar, " - ", maxPar, " Type: ",eType
-        iMulti = (maxPar-minPar)/divisions
-        
-        for i in range(divisions+1):
-          #print "j, i: ", j," ",i," ",fEdge.valueAt(minPar + i*iMulti)
-          posi = fEdge.valueAt(minPar + i*iMulti)
-          radVec = radial_vector(posi, cent, axis)
-          angle2 = math.atan2(nullVec.cross(radVec).Length, nullVec.dot(radVec))
-          angle = sign * math.atan2(nullVec.cross(radVec).dot(-axis), nullVec.dot(radVec))
-          if (angle < 0.0001) and (angle > -0.0001):
-            #print 'got none angle'
-            bPosi = posi
-          else:
-            if angle < -math.pi/8:
-              angle = angle + 2*math.pi
-            rotVec = self.rotateVec(posi.sub(cent), sign*angle, axis)
+          if ("<Ellipse object>" in eType):
+            minPar, maxPar = fEdge.ParameterRange
+            FreeCAD.Console.PrintLog("the Parameterrange: "+ str(minPar)+ " to " + str(maxPar)+ " Type: "+str(eType) + "\n")
+            iMulti = (maxPar-minPar)/divisions
+            oldEIdx, pIdx = conDict[fEdgeIdx]
+            if pIdx == 1: pIdx = divisions
             
-            bPosi = cent + rotVec + tanVec*transRad*angle
-            #print 'Face', bend_node.idx + 1, ' in bspline the angle: ', sign, ' ', angle,  ' length angle: ', angle2, ' ', bend_node.bend_angle
-          urollPts.append(bPosi)
-        uCurve = Part.BSplineCurve()
-        uCurve.interpolate(urollPts)
-        theCurve = uCurve.toShape()
-        wireList.append(theCurve)
-        #Part.show(theCurve, 'B_spline')
-      else:
-        FreeCAD.Console.PrintLog('unbendFace, curve type not handled: ' + str(eType) + '\n')
-        self.error_code = 26
-        self.failed_face_idx = fIdx
+            for i in range(divisions+1):
+              #print "j, i: ", j," ",i," ",fEdge.valueAt(minPar + i*iMulti)
+              if i == pIdx:
+                if j == 0:
+                  bPosi = uLastCon
+                else:
+                  bPosi = eList[j-1].Vertexes[oldEIdx].Point
+                  print 'old bPosi: ', bPosi, ' ', oldEIdx
+              else:
+                posi = fEdge.valueAt(minPar + i*iMulti)      
+                bPosi = unbendPoint(posi)
+              urollPts.append(bPosi)
+            
+            uCurve = Part.BSplineCurve()
+            uCurve.interpolate(urollPts)
+            theCurve = uCurve.toShape()
+            eList.append(theCurve)
+            #Part.show(theCurve, 'Elli'+str(j)+'_')
+     
+    
+          elif "<Line" in eType:
+            #print 'j: ',j , ' eType: ', eType, ' fIdx: ', fIdx, ' verts: ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point
 
+            oldEIdx, pIdx = conDict[fEdgeIdx]
+            #for lVert in fEdge.Vertexes:
+            for vIdx in range(2):
+              if vIdx == pIdx:
+                if j == 0:
+                  bPosi = uLastCon
+                else:
+                  bPosi = eList[j-1].Vertexes[oldEIdx].Point
+                  #print 'old bPosi: ', bPosi, ' ', oldEIdx
+              else:
+                posi = fEdge.Vertexes[vIdx].Point
+                #posi = lVert.Point
+                
+                bPosi = unbendPoint(posi)
+              urollPts.append(bPosi)
+            edgeL = Part.makeLine(urollPts[0], urollPts[1])
+            eList.append(edgeL)
+            #lWire = Part.Wire([edgeL])
+            #Part.show(lWire, 'Line'+str(j)+'_')
+    
+          elif "Circle" in eType:  #fix me! need to check if circle ends are at different radii!
+            FreeCAD.Console.PrintLog('j: '+ str(j) + ' eType: '+ str(eType) + '\n')
+            parList = fEdge.ParameterRange
+            #print "the Parameterrange: ", parList[0], " , ", parList[1], " Type: ",eType
+            #axis_line = Part.makeLine(cent, cent + axis)
+            #Part.show(axis_line, 'axis_line'+ str(bend_node.idx+1)+'_')
+            #print 'Face', str(bend_node.idx+1), 'bAxis: ', axis, ' cAxis: ', fEdge.Curve.Axis
 
+            oldEIdx, pIdx = conDict[fEdgeIdx]
+            for vIdx in range(2):
+              if vIdx == pIdx:
+                if j == 0:
+                  bPosi = uLastCon
+                else:
+                  bPosi = eList[j-1].Vertexes[oldEIdx].Point
+                  #print 'old bPosi: ', bPosi, ' ', oldEIdx
+              else:
+                posi = fEdge.Vertexes[vIdx].Point
+                bPosi = unbendPoint(posi)
 
-      j += 1
-    edgeLists = Part.sortEdges(wireList)
+            
+            # for para in parList:
+              # #print "parameter: ",fEdge.valueAt(para)
+              # posi = fEdge.valueAt(para)
+    
+              # bPosi = unbendPoint(posi)
+              urollPts.append(bPosi)
+            edgeL = Part.makeLine(urollPts[0], urollPts[1])
+            #lWire = Part.Wire([edgeL])
+            eList.append(edgeL)
+            #Part.show(lWire, 'CircleLine'+str(j)+'_')
+    
+          elif ("<BSplineCurve object>" in eType) or ("<BezierCurve object>" in eType):
+            minPar, maxPar = fEdge.ParameterRange
+            #print "the Parameterrange: ", minPar, " - ", maxPar, " Type: ",eType
+            iMulti = (maxPar-minPar)/divisions
+            oldEIdx, pIdx = conDict[fEdgeIdx]
+            if pIdx == 1: pIdx = divisions
+            
+            for i in range(divisions+1):
+              #print "j, i: ", j," ",i," ",fEdge.valueAt(minPar + i*iMulti)
+              if i == pIdx:
+                if j == 0:
+                  bPosi = uLastCon
+                else:
+                  bPosi = eList[j-1].Vertexes[oldEIdx].Point
+                  #print 'old bPosi: ', bPosi, ' ', oldEIdx
+              else:
+                posi = fEdge.valueAt(minPar + i*iMulti)      
+                bPosi = unbendPoint(posi)
+              urollPts.append(bPosi)
+            #testPoly = Part.makePolygon(urollPts)
+            #Part.show(testPoly, 'testPoly'+ str(fIdx+1) + '_')
+            uCurve = Part.BSplineCurve()
+            uCurve.interpolate(urollPts)
+            theCurve = uCurve.toShape()
+            eList.append(theCurve)
+            #Part.show(theCurve, 'B_spline')
+          else:
+            print 'unbendFace, curve type not handled: ' + str(eType) + ' in Face' + str(fIdx+1)
+            FreeCAD.Console.PrintLog('unbendFace, curve type not handled: ' + str(eType) + '\n')
+            self.error_code = 26
+            self.failed_face_idx = fIdx
+    
+    
+    
+          j += 1
+        edgeLists.append(eList)
+    # end of for what?
+    
+    # edgeLists = Part.sortEdges(eList) now done in the tolerant sort
     if len(edgeLists) <> len(aFace.Wires):
       print "Got a failure: wrong number of wires in Face", str(fIdx + 1), ' !'
       print 'len edgeLists: ', len(edgeLists), ' Wires: ', len(aFace.Wires)
-      edgeLists = self.repairWire(wireList)
+      edgeLists = self.repairWire(eList)
     
     
     if len(edgeLists) == 1:
-      wireList = Part.__sortEdges__(edgeLists[0])
-      myWire = Part.Wire(wireList)
-      FreeCAD.Console.PrintLog('len Wirelist: '+ str(len(wireList)) + '\n')
-      #Part.show(myWire)
+      eList = Part.__sortEdges__(edgeLists[0])
+      myWire = Part.Wire(eList)
+      FreeCAD.Console.PrintLog('len eList: '+ str(len(eList)) + '\n')
+      #Part.show(myWire, 'Wire_Face'+str(fIdx+1)+'_' )
       if (len(myWire.Vertexes) == 2) and (len(myWire.Edges) == 3):
         #print 'got sweep condition!'
         pWire = Part.Wire(myWire.Edges[1])
@@ -1128,36 +1211,36 @@ class SheetTree(object):
         #Part.show(theFace, 'Loch')
       else:
         try:
-            Part.show(myWire, 'myWire'+ str(bend_node.idx+1)+'_')
+            #Part.show(myWire, 'myWire'+ str(bend_node.idx+1)+'_')
             theFace = Part.Face(myWire)
             #theFace = Part.makeFace(myWire, 'Part::FaceMakerSimple')
         except:
-            FreeCAD.Console.PrintLog('got exception at Face: '+ str(fIdx+1) +' len Wirelist: '+ str(len(wireList)) + '\n')
-            #for w in wireList:
+            FreeCAD.Console.PrintLog('got exception at Face: '+ str(fIdx+1) +' len eList: '+ str(len(eList)) + '\n')
+            #for w in eList:
               #Part.show(w, 'exceptEdge')
               #print 'exception type: ', str(w.Curve)
             #Part.show(myWire, 'exceptionWire')
             secWireList = myWire.Edges[:]
             thirdWireList = Part.__sortEdges__(secWireList)
             theFace = Part.makeFilledFace(thirdWireList)
-        Part.show(theFace, 'theFace'+ str(bend_node.idx+1)+'_')
+        #Part.show(theFace, 'theFace'+ str(bend_node.idx+1)+'_')
     else:
       FreeCAD.Console.PrintLog('len edgeLists: '+ str(len(edgeLists))+'\n')
       faces = []
       wires = []
       wireNumber = 0
       for w in edgeLists:
-        wireList = Part.__sortEdges__(w)
-        #print 'wireList: ', wireList
+        eList = Part.__sortEdges__(w)
+        #print 'eList: ', eList
         if wireNumber < 0:
-          #myWire = Part.Wire(wireList.reverse())
+          #myWire = Part.Wire(eList.reverse())
           reversList = []
-          for e in wireList:
+          for e in eList:
             reversList.insert(0,e)
           myWire = Part.Wire(reversList)
         else:
-          myWire = Part.Wire(wireList)
-        Part.show(myWire, 'myWire'+ str(bend_node.idx+1)+'_')
+          myWire = Part.Wire(eList)
+        #Part.show(myWire, 'myWire'+ str(bend_node.idx+1)+'_')
         nextFace = Part.Face(myWire)
         faces.append(nextFace)
         wires.append(myWire)
@@ -1182,6 +1265,58 @@ class SheetTree(object):
           #Part.show(theFace, 'exception')
     
     return theFace
+
+  def sortEdgesTolerant(self, myEdgeList):
+    '''
+    sort edges from an existing wire.
+    returns an index list
+    returns a dict of indexes of connecting vertexes
+    '''
+    eIndex = 0 
+    newEdgeList = []
+    idxList = range(len(myEdgeList))
+    newIdxList = [eIndex]
+    newEdgeList.append(myEdgeList[eIndex])
+    idxList.remove(eIndex)
+    gotConnection = False
+    closedWire = False
+    conDict = {}
+    
+    startVert  = myEdgeList[eIndex].Vertexes[0]
+    vert = myEdgeList[eIndex].Vertexes[1]
+    vIdx = 1
+
+    while not gotConnection:
+      for eIdx in idxList:
+        edge = myEdgeList[eIdx]
+        if equal_vertex(vert, edge.Vertexes[0]):
+          idxList.remove(eIdx)
+          eIndex = eIdx
+          #print 'found eIdx: ', eIdx
+          newIdxList.append(eIdx)
+          conDict[eIdx] = vIdx, 0
+          vert = edge.Vertexes[1]
+          vIdx = 1
+          break
+        if equal_vertex(vert, edge.Vertexes[1]):
+          idxList.remove(eIdx)
+          eIndex = eIdx
+          #print 'found eIdx: ', eIdx
+          newIdxList.append(eIdx)
+          conDict[eIdx] = vIdx, 1
+          vert = edge.Vertexes[0]
+          vIdx = 0
+          break
+      if (len(idxList) == 0):
+        gotConnection = True 
+      if equal_vertex(vert, startVert):
+        #print 'got last connection'
+        conDict[0] = vIdx, 0
+        gotConnection = True
+        closedWire = True
+
+    return newIdxList, conDict, vert.Point
+    
 
   def repairWire(self, myWireList):
     newWireLists = []
@@ -1248,9 +1383,9 @@ class SheetTree(object):
     # fix me: errorhandling is missing
     sortedList = Part.__sortEdges__(newWire)
     testWire = Part.Wire(sortedList)
-    Part.show(testWire, 'testWire')
+    Part.show(testWire, 'repairedWire')
     testFace = Part.Face(testWire)
-    Part.show(testFace, 'TestFace')
+    Part.show(testFace, 'repairedFace')
     newWireLists.append(sortedList)
     return newWireLists
 
@@ -1337,19 +1472,22 @@ class SheetTree(object):
     #tanVec_line = Part.makeLine(zeroVert.Point, zeroVert.Point + bend_node.tan_vec*bend_node.innerRadius)
     #Part.show(tanVec_line, 'tanVec_line'+ str(bend_node.idx+1)+'_')
     
+    bendFaceList = bend_node.nfIndexes[:]
+    bendFaceList.remove(bend_node.idx)
+    bendFaceList.remove(bend_node.c_face_idx)
+    
     flat_shell = []
-
-    for i in bend_node.nfIndexes:
+    flat_shell.append(self.unbendFace(bend_node.idx, bend_node, nullVec, 'top') )
+    flat_shell.append(self.unbendFace(bend_node.c_face_idx, bend_node, nullVec, 'counter') )
+    
+    
+    for i in bendFaceList:
       bFace = self.unbendFace(i, bend_node, nullVec)
       flat_shell.append(bFace)
       #Part.show(bFace, 'bFace'+str(i +1))
       #for v in bFace.Vertexes:
       #  print 'Face'+str(i+1) + ' ' + str(v.X) + ' ' + str(v.Y) + ' ' + str(v.Z)
-    #bShell = Part.Shell([flat_shell[4],flat_shell[5],flat_shell[6],flat_shell[7], flat_shell[2],flat_shell[3],])
-    #bShell = Part.Shell([flat_shell[3]])
-    #bShell = Part.Shell(flat_shell[0:4])
-    #bShell = Part.Shell([flat_shell[0],flat_shell[1],flat_shell[2],flat_shell[3] ])
-    #Part.show(bShell, 'bendShell')
+
     foldwires = self.makeFoldLines(bend_node, nullVec)
     #print 'face idx: ', bend_node.idx +1, ' folds: ', foldwires
     return flat_shell, foldwires
