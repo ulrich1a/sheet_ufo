@@ -416,28 +416,23 @@ class SheetTree(object):
       vertList = []
       F_type = str(self.f_list[tree_node.idx].Surface)
       # now we need to search for vertexes with sheet_thickness_distance
-      #fix me: get the maximal plus and minus distance to the plane or cylinder face
-      # only faces with zero distance and sheet_thickness_distance vertexes are 
-      # accepted as sheet edge faces.
-      minDist = 0.0
-      maxDist = 0.0
       for F_vert in self.f_list[i].Vertexes:
-        vDist = self.getDistanceToFace(F_vert, tree_node)
-        if vDist > maxDist: maxDist = vDist
-        if vDist < minDist: minDist = vDist
-      maxDist = maxDist- self.__thickness
-      if (minDist > -self.cFaceTol) and (maxDist < self.cFaceTol) and (maxDist > -self.cFaceTol):
+        #vDist = self.getDistanceToFace(F_vert, tree_node)
+        #if vDist > maxDist: maxDist = vDist
+        #if vDist < minDist: minDist = vDist
+      #maxDist = maxDist- self.__thickness
+      #if (minDist > -self.cFaceTol) and (maxDist < self.cFaceTol) and (maxDist > -self.cFaceTol):
 
-        #if self.isVertOpposite(F_vert, tree_node):
-        has_sheet_distance_vertex = True
-        if len(self.f_list[i].Edges)<5:
-          tree_node.nfIndexes.append(i)
-          self.index_list.remove(i)
-          #Part.show(self.f_list[i])
-        else:
-          # need to cut the face at the ends of ise_edge
-          self.divideEdgeFace(i, ise_edge, F_vert, tree_node)
-          #break
+        if self.isVertOpposite(F_vert, tree_node):
+          has_sheet_distance_vertex = True
+          if len(self.f_list[i].Edges)<5:
+            tree_node.nfIndexes.append(i)
+            self.index_list.remove(i)
+            #Part.show(self.f_list[i])
+          else:
+            # need to cut the face at the ends of ise_edge
+            self.divideEdgeFace(i, ise_edge, F_vert, tree_node)
+          break
 
     else:
       tree_node.analysis_ok = False 
