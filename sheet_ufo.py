@@ -804,7 +804,21 @@ class SheetTree(object):
             FreeCAD.Console.PrintLog("faceMiddle: " + str(faceMiddle) + " counterMiddle: "+ str(counterMiddle) + "\n")
       #if newNode.c_face_idx == None:
       #  Part.show(axis_line)
-          
+      # if the parent is a bend: check the bend angle and correct it.
+      if newNode.p_node:
+        if newNode.p_node.node_type == 'Bend':
+          if newNode.p_node.p_node.node_type == 'Flat':
+            # calculate the angle on base of ext_Vec
+            ppVec = newNode.p_node.p_node.axis # normal of the flat face
+            myVec = newNode.axis # normal of the flat face
+            theAxis = newNode.p_node.axis # Bend axis
+            #sign = newNode.p_node.angleSign * -1.0
+            angle = math.atan2(ppVec.cross(myVec).dot(-theAxis), ppVec.dot(myVec))
+            #if angle < -math.pi/8:
+            #  angle = angle + 2*math.pi
+            #print 'compare angles, bend: ', newNode.p_node.bend_angle, ' ', sign, ' ', angle
+            newNode.p_node.bend_angle = angle # This seems to be an improvement!
+            # newNode.p_node.bend_angle = (angle + newNode.p_node.bend_angle) / 2.0 # this is a bad approach
         
 
             
@@ -902,61 +916,59 @@ class SheetTree(object):
     #print "Bend_analysis Face", face_idx +1 ,
     # analysis_ok = True # not used anymore? 
     # edge_list = []
-    wires_edge_lists = []
-    wire_idx = -1
-    for n_wire in self.f_list[face_idx].Wires:
-      wire_idx += 1
-      wires_edge_lists.append([])
-      #for n_edge in self.__Shape.Faces[face_idx].Edges:
-      for n_edge in n_wire.Edges:
-        if parent_edge:
-          if not parent_edge.isSame(n_edge):
+    if self.error_code is None:
+      wires_edge_lists = []
+      wire_idx = -1
+      for n_wire in self.f_list[face_idx].Wires:
+        wire_idx += 1
+        wires_edge_lists.append([])
+        #for n_edge in self.__Shape.Faces[face_idx].Edges:
+        for n_edge in n_wire.Edges:
+          if parent_edge:
+            if not parent_edge.isSame(n_edge):
+              #edge_list.append(n_edge)
+              wires_edge_lists[wire_idx].append(n_edge)
+            #
+          else:
             #edge_list.append(n_edge)
             wires_edge_lists[wire_idx].append(n_edge)
-          #
-        else:
-          #edge_list.append(n_edge)
-          wires_edge_lists[wire_idx].append(n_edge)
-    if parent_node:
-      FreeCAD.Console.PrintLog(" Parent Face" + str(parent_node.idx + 1) + "\n")
-    FreeCAD.Console.PrintLog("The list: "+ str(self.index_list) + "\n")
-    t_node = self.make_new_face_node(face_idx, parent_node, parent_edge, wires_edge_lists)
-    # Need also the edge_list in the node!
-    FreeCAD.Console.PrintLog("The list after make_new_face_node: " + str(self.index_list) + "\n")
-    
-    # in the new code, only the list of child faces will be analyzed.
-    removalList = []
-    for child_info in t_node.child_idx_lists:
-      if self.error_code is not None:
-        print 'got error code: ', self.error_code, ' at Face', str(self.failed_face_idx+1)
-        Part.show(self.__Shape.Faces[self.failed_face_idx], 'FailedFace')
-        break
-
-
-
-      if child_info[0] in self.index_list:
-        FreeCAD.Console.PrintLog("child in list: "+ str(child_info[0]) + "\n")
-        self.Bend_analysis(child_info[0], t_node, child_info[1])
-      else:
-        FreeCAD.Console.PrintLog("remove child from List: " + str(child_info[0]) + "\n")
-        t_node.seam_edges.append(child_info[1]) # give Information to the node, that it has a seam.
-        FreeCAD.Console.PrintLog("node faces before: " + str(t_node.nfIndexes) + "\n")
-        # do not make Faces at a detected seam!
-        # self.makeSeamFace(child_info[1], t_node)
-        removalList.append(child_info)
-        FreeCAD.Console.PrintLog("node faces with seam: "+ str(t_node.nfIndexes) + "\n")
-        otherSeamNode = self.searchNode(child_info[0], self.root)
-        FreeCAD.Console.PrintLog("counterface on otherSeamNode: Face" + str(otherSeamNode.c_face_idx+1) + "\n")
-        # do not make Faces at a detected seam!
-        # self.makeSeamFace(child_info[1], otherSeamNode)
-        #t_node.analysis_ok = False # the code can not handle? edges without neighbor faces
-        #t_node.error_code = 14 # Analysis: the code can not handle? edges without neighbor faces
-        #self.error_code = 14
-        #self.failed_face_idx = t_node.idx
-        #break
-    for seams in removalList:
-      t_node.child_idx_lists.remove(seams)
+      if parent_node:
+        FreeCAD.Console.PrintLog(" Parent Face" + str(parent_node.idx + 1) + "\n")
+      FreeCAD.Console.PrintLog("The list: "+ str(self.index_list) + "\n")
+      t_node = self.make_new_face_node(face_idx, parent_node, parent_edge, wires_edge_lists)
+      # Need also the edge_list in the node!
+      FreeCAD.Console.PrintLog("The list after make_new_face_node: " + str(self.index_list) + "\n")
       
+      # in the new code, only the list of child faces will be analyzed.
+      removalList = []
+      for child_info in t_node.child_idx_lists:
+        if child_info[0] in self.index_list:
+          FreeCAD.Console.PrintLog("child in list: "+ str(child_info[0]) + "\n")
+          self.Bend_analysis(child_info[0], t_node, child_info[1])
+        else:
+          FreeCAD.Console.PrintLog("remove child from List: " + str(child_info[0]) + "\n")
+          t_node.seam_edges.append(child_info[1]) # give Information to the node, that it has a seam.
+          FreeCAD.Console.PrintLog("node faces before: " + str(t_node.nfIndexes) + "\n")
+          # do not make Faces at a detected seam!
+          # self.makeSeamFace(child_info[1], t_node)
+          removalList.append(child_info)
+          FreeCAD.Console.PrintLog("node faces with seam: "+ str(t_node.nfIndexes) + "\n")
+          otherSeamNode = self.searchNode(child_info[0], self.root)
+          FreeCAD.Console.PrintLog("counterface on otherSeamNode: Face" + str(otherSeamNode.c_face_idx+1) + "\n")
+          # do not make Faces at a detected seam!
+          # self.makeSeamFace(child_info[1], otherSeamNode)
+          #t_node.analysis_ok = False # the code can not handle? edges without neighbor faces
+          #t_node.error_code = 14 # Analysis: the code can not handle? edges without neighbor faces
+          #self.error_code = 14
+          #self.failed_face_idx = t_node.idx
+          #break
+      for seams in removalList:
+        t_node.child_idx_lists.remove(seams)
+    else:
+      print 'got error code: ', self.error_code, ' at Face', str(self.failed_face_idx+1)
+      #Part.show(self.__Shape.Faces[self.failed_face_idx], 'FailedFace')
+      
+
   
   
   def searchNode(self, theIdx, sNode):
