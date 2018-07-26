@@ -168,6 +168,13 @@ def equal_angle(ang1, ang2, p=5):
     result = True
   return result
 
+def equal_edge(edg1, edg2, p=5):
+  result = True
+  if not (equal_vertex(edg1.Vertexes[0], edg2.Vertexes[0]) or equal_vertex(edg1.Vertexes[0], edg2.Vertexes[1])):
+    result = False
+  if not (equal_vertex(edg1.Vertexes[1], edg2.Vertexes[0]) or equal_vertex(edg1.Vertexes[1], edg2.Vertexes[1])):
+    result = False
+  return result
 
 
 class Simple_node(object):
@@ -205,7 +212,9 @@ class Simple_node(object):
     self.seam_edges = [] # list with edges to seams
     # bend faces are needed for movement simulation at single other bends.
     # otherwise unfolded faces are recreated from self.b_edges
-    self.node_flattened_faces = [] # faces of a flattened bend node. 
+    self.node_flattened_faces = [] # faces of a flattened bend node.
+    self.unfoldTopList = None # source of identical side edges
+    self.unfoldCounterList = None # source of identical side edges
     self.actual_angle = None # state of angle in refolded sheet metal part
     self.p_wire = None # wire common with parent node, used for bend node
     self.c_wire = None # wire common with child node, used for bend node
@@ -1023,21 +1032,47 @@ class SheetTree(object):
     sign = bend_node.angleSign * -1.0
     normVec = radial_vector(bend_node.p_edge.Vertexes[0].Point, cent, axis)
     
+    compPoints = []
+    if mode == 'top':
+      for p in self.f_list[bend_node.p_node.idx].Vertexes:
+        compPoints.append(p.Point)
+      if len(bend_node.child_list) > 0:
+        cTopFace = self.f_list[bend_node.child_list[0].idx].copy()
+        trans_vec = bend_node.tan_vec * bend_node._trans_length
+        cTopFace.rotate(cent, axis, math.degrees(bend_node.bend_angle))
+        cTopFace.translate(trans_vec)
+        for p in cTopFace.Vertexes:
+          compPoints.append(p.Point)
+
+      #need to copy the child face, if it exist and rotate and translate it.
+      # here the child Face to do
+      #for p in self.f_list[bend_node.p_node.idx].Vertexes:
+      #  compPoints.append(p.Point)
+
+    if mode == 'counter':
+      for p in self.f_list[bend_node.p_node.c_face_idx].Vertexes:
+        compPoints.append(p.Point)
+      if len(bend_node.child_list) > 0:
+        cCounterFace = self.f_list[bend_node.child_list[0].c_face_idx].copy()
+        trans_vec = bend_node.tan_vec * bend_node._trans_length
+        cCounterFace.rotate(cent, axis, math.degrees(bend_node.bend_angle))
+        cCounterFace.translate(trans_vec)
+        for p in cCounterFace.Vertexes:
+          compPoints.append(p.Point)
+
+    if mode == 'side':
+      edgeSearchList = []
+      for tEdge in bend_node.unfoldTopList:
+        compPoints.append(tEdge.Vertexes[0].Point)
+        compPoints.append(tEdge.Vertexes[1].Point)
+        edgeSearchList.append(tEdge)
+      for tEdge in bend_node.unfoldCounterList:
+        compPoints.append(tEdge.Vertexes[0].Point)
+        compPoints.append(tEdge.Vertexes[1].Point)
+        edgeSearchList.append(tEdge)
+      #print 'compPoints: ', compPoints
+
     def unbendPoint(poi):
-      compPoints = []
-      if mode == 'top':
-        for p in self.f_list[bend_node.p_node.idx].Vertexes:
-          compPoints.append(p.Point)
-        #need to copy the child face, if it exist and rotate and translate it.
-        # here the child Face to do
-        #for p in self.f_list[bend_node.p_node.idx].Vertexes:
-        #  compPoints.append(p.Point)
-
-      if mode == 'counter':
-        for p in self.f_list[bend_node.p_node.c_face_idx].Vertexes:
-          compPoints.append(p.Point)
-
-
       gotPoint = False
       for tPoint in compPoints:
         if equal_vector(poi, tPoint):
@@ -1063,6 +1098,7 @@ class SheetTree(object):
     edgeLists = []
 
     for aWire in fWireList:
+        uEdge = None
         idxList, conDict, lastCon = self.sortEdgesTolerant(aWire.Edges)
         #cVert = Part.Vertex(lastCon)
         uLastCon = unbendPoint(lastCon)
@@ -1098,9 +1134,9 @@ class SheetTree(object):
             
             uCurve = Part.BSplineCurve()
             uCurve.interpolate(urollPts)
-            theCurve = uCurve.toShape()
-            eList.append(theCurve)
-            #Part.show(theCurve, 'Elli'+str(j)+'_')
+            uEdge = uCurve.toShape()
+            #eList.append(uEdge)
+            #Part.show(uEdge, 'Elli'+str(j)+'_')
      
     
           elif "<Line" in eType:
@@ -1121,10 +1157,9 @@ class SheetTree(object):
                 
                 bPosi = unbendPoint(posi)
               urollPts.append(bPosi)
-            edgeL = Part.makeLine(urollPts[0], urollPts[1])
-            eList.append(edgeL)
-            #lWire = Part.Wire([edgeL])
-            #Part.show(lWire, 'Line'+str(j)+'_')
+            uEdge = Part.makeLine(urollPts[0], urollPts[1])
+            #eList.append(uEdge)
+            #Part.show(uEdge, 'Line'+str(j)+'_')
     
           elif "Circle" in eType:  #fix me! need to check if circle ends are at different radii!
             FreeCAD.Console.PrintLog('j: '+ str(j) + ' eType: '+ str(eType) + '\n')
@@ -1153,10 +1188,9 @@ class SheetTree(object):
     
               # bPosi = unbendPoint(posi)
               urollPts.append(bPosi)
-            edgeL = Part.makeLine(urollPts[0], urollPts[1])
-            #lWire = Part.Wire([edgeL])
-            eList.append(edgeL)
-            #Part.show(lWire, 'CircleLine'+str(j)+'_')
+            uEdge = Part.makeLine(urollPts[0], urollPts[1])
+            #eList.append(uEdge)
+            #Part.show(uEdge, 'CircleLine'+str(j)+'_')
     
           elif ("<BSplineCurve object>" in eType) or ("<BezierCurve object>" in eType):
             minPar, maxPar = fEdge.ParameterRange
@@ -1180,24 +1214,43 @@ class SheetTree(object):
             #testPoly = Part.makePolygon(urollPts)
             #Part.show(testPoly, 'testPoly'+ str(fIdx+1) + '_')
             uCurve = Part.BSplineCurve()
-            uCurve.interpolate(urollPts)
-            theCurve = uCurve.toShape()
-            eList.append(theCurve)
-            #Part.show(theCurve, 'B_spline')
+            try:
+              uCurve.interpolate(urollPts)
+              uEdge = uCurve.toShape()
+              #eList.append(uEdge)
+              #Part.show(theCurve, 'B_spline')
+            except:
+              #uEdge =  Part.makeLine(urollPts[0], urollPts[-1])
+              uCurve.interpolate([urollPts[0],urollPts[3],urollPts[6],urollPts[9], urollPts[-1]])
+              uEdge = uCurve.toShape()
           else:
             print 'unbendFace, curve type not handled: ' + str(eType) + ' in Face' + str(fIdx+1)
             FreeCAD.Console.PrintLog('unbendFace, curve type not handled: ' + str(eType) + '\n')
             self.error_code = 26
             self.failed_face_idx = fIdx
-    
-    
-    
+          
+          # in mode 'side' check, if not the top or counter edge can be used instead.
+          if mode == 'side':
+            #print 'need to search the unfold list'
+            for betterEdge in edgeSearchList:
+              if equal_edge(betterEdge, uEdge):
+                uEdge = betterEdge
+                print 'replaced an edge for Face', str(fIdx + 1)
+                break
+          eList.append(uEdge)
           j += 1
         edgeLists.append(eList)
     # end of for what?
     
+    # Here we store the unbend top and counter outer edge list in the node data.
+    # These are needed later as edges in the new side faces. 
+    if mode == 'top':
+      bend_node.unfoldTopList = edgeLists[0]
+    if mode == 'counter':
+      bend_node.unfoldCounterList = edgeLists[0]
+    
     # edgeLists = Part.sortEdges(eList) now done in the tolerant sort
-    if len(edgeLists) <> len(aFace.Wires):
+    if len(edgeLists) <> len(aFace.Wires): # fix me: this should be obsolete!
       print "Got a failure: wrong number of wires in Face", str(fIdx + 1), ' !'
       print 'len edgeLists: ', len(edgeLists), ' Wires: ', len(aFace.Wires)
       edgeLists = self.repairWire(eList)
@@ -1226,7 +1279,7 @@ class SheetTree(object):
             #for w in eList:
               #Part.show(w, 'exceptEdge')
               #print 'exception type: ', str(w.Curve)
-            #Part.show(myWire, 'exceptionWire')
+            #Part.show(myWire, 'exceptionWire'+ str(fIdx+1)+'_')
             secWireList = myWire.Edges[:]
             thirdWireList = Part.__sortEdges__(secWireList)
             theFace = Part.makeFilledFace(thirdWireList)
