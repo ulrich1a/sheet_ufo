@@ -115,11 +115,12 @@ unfold_error = {
   2: ('Starting: invalid point for thickness measurement'), 
   3: ('Starting: invalid thickness'), 
   4: ('Starting: invalid shape'), 
+  5: ('Starting: Shape has unneeded edges. Please use function refine shape from the Part Workbench before unfolding!'), 
   # error codes for the bend-analysis 
   10: ('Analysis: zero wires in sheet edge analysis'), 
   11: ('Analysis: double bends not implemented'), 
   12: ('Analysis: more than one bend-child actually not supported'), 
-  13: ('Analysis: counter face not found'), 
+  13: ('Analysis: Sheet thickness invalid for this face!'), 
   14: ('Analysis: the code can not handle edges without neighbor faces'), 
   15: ('Analysis: the code needs a face at all sheet edges'), 
   16: ('Analysis: did not find startangle of bend, please post failing sample for analysis'), 
@@ -258,6 +259,13 @@ class SheetTree(object):
       self.f_list.append(self.__Shape.Faces[i])
     #print self.index_list
     self.max_f_idx = len(self.f_list) # need this value to make correct indices to new faces
+    self.unfoldFaces = len(self.f_list) # need the original number of faces for error detection
+    withoutSplitter = self.__Shape.removeSplitter()
+    #if self.unfoldFaces > len(withoutSplitter.Faces): # This is not a good idea! Most sheet metal parts have unneeded edges.
+      #print 'got case which needs a refine shape from the Part workbench!'
+      #self.error_code = 5
+      #self.failed_face_idx = f_idx
+      
 
     theVol = self.__Shape.Volume
     if theVol < 0.0001:
@@ -343,7 +351,7 @@ class SheetTree(object):
           self.error_code = 3
           self.failed_face_idx = f_idx
           FreeCAD.Console.PrintLog("estimated thickness: " + str(estimated_thickness) + " measured thickness: " + self.__thickness + "\n")
-          Part.show(lLine)
+          Part.show(lLine, 'Measurement_Thickness_trial')
 
 
   def get_node_faces(self, theNode, wires_e_lists):
@@ -362,7 +370,7 @@ class SheetTree(object):
     # node. Those faces needs to be cut and the face list needs to be updated.
     # look also at the number of wires of the top face. More wires will
     # indicate a hole or a feature.
-    print " When will this be called"
+    #print " When will this be called"
     found_indices = []
     # A search strategy for faces based on the wires_e_lists is needed.
     # 
@@ -411,7 +419,7 @@ class SheetTree(object):
       for sf_edge in self.f_list[i].Edges:
         if sf_edge.isSame(ise_edge):
           the_index = i
-          print 'got edge face: Face', str(i+1)
+          #print 'got edge face: Face', str(i+1)
           break
       if the_index is not None:
         break
@@ -633,7 +641,7 @@ class SheetTree(object):
       for myVert in cFace.Vertexes:
         if equal_vertex(theEdge.Vertexes[eIdx], myVert):
           nodeFace = cFace
-          print "The nodeFace Idx: ", fIdx, ' eIdx: ', eIdx 
+          #print "The nodeFace Idx: ", fIdx, ' eIdx: ', eIdx 
           #Part.show(nodeFace)
           break
 
@@ -730,7 +738,7 @@ class SheetTree(object):
         diffAngle = newNode.bend_angle - cFaceAngle
       
         
-    print 'node angles: ', newNode.bend_angle, ' ', diffAngle
+    #print 'node angles: ', newNode.bend_angle, ' ', diffAngle
 
 
 
@@ -780,7 +788,11 @@ class SheetTree(object):
       for Vvec in self.__Shape.Faces[face_idx].OuterWire.Vertexes:
           faceMiddle = faceMiddle.add(Vvec.Point)
       faceMiddle = faceMiddle.multiply(1.0/len(self.__Shape.Faces[face_idx].OuterWire.Vertexes))
+      faceMiddle = faceMiddle.add(self.__thickness * ext_Vec)
+      #Part.show(Part.makeLine(faceMiddle, faceMiddle + 2*ext_Vec), 'faceMiddle'+str(face_idx))
       
+      counterFaceList = []
+      gotCFace = False
       # search for the counter face
       for i in such_list:
         counter_found = True
@@ -788,6 +800,7 @@ class SheetTree(object):
           vF_vert = Base.Vector(F_vert.X, F_vert.Y, F_vert.Z)
           dist_v = vF_vert.distanceToPlane (s_Posi, ext_Vec) - self.__thickness
           # print "counter face distance: ", dist_v + self.__thickness
+          #print 'checking Face', str(i+1), ' dist_v: ', dist_v
           if (dist_v > self.cFaceTol) or (dist_v < -self.cFaceTol):
               counter_found = False
   
@@ -801,16 +814,30 @@ class SheetTree(object):
           distVector = counterMiddle.sub(faceMiddle)
           counterDistance = distVector.Length
           
-          if counterDistance < 3*self.__thickness:
+          if counterDistance < 2*self.__thickness: # small stripes are a risk, fix me!
             FreeCAD.Console.PrintLog( "found counter-face"+ str(i + 1) + "\n")
-            newNode.c_face_idx = i
-            self.index_list.remove(i)
-            newNode.nfIndexes.append(i)
-            
+            counterFaceList.append([i, counterDistance])
+            gotCFace = True
+            #newNode.c_face_idx = i
+            #self.index_list.remove(i)
+            #newNode.nfIndexes.append(i)
             # Part.show(self.__Shape.Faces[newNode.c_face_idx])
           else:
             counter_found = False
             FreeCAD.Console.PrintLog("faceMiddle: " + str(faceMiddle) + " counterMiddle: "+ str(counterMiddle) + "\n")
+      
+      if gotCFace:
+        newNode.c_face_idx = counterFaceList[0][0]
+        if len(counterFaceList) > 1:
+          counterDistance = counterFaceList[0][1]
+          for i in range(1,len(counterFaceList)):
+            if counterDistance > counterFaceList[i][1]:
+              counterDistance = counterFaceList[i][1]
+              newNode.c_face_idx = counterFaceList[i][0]
+        self.index_list.remove(newNode.c_face_idx)
+        newNode.nfIndexes.append(newNode.c_face_idx)
+
+            
       #if newNode.c_face_idx == None:
       #  Part.show(axis_line)
       # if the parent is a bend: check the bend angle and correct it.
@@ -902,7 +929,7 @@ class SheetTree(object):
       self.error_code = 13
       self.failed_face_idx = face_idx
       FreeCAD.Console.PrintLog("No counter-face Debugging Thickness: "+ str(self.__thickness) + "\n")
-      Part.show(self.__Shape.Faces[face_idx])
+      Part.show(self.__Shape.Faces[face_idx], 'FailedFace'+ str(face_idx + 1) +'_')
 
     # now we call the new code
     self.get_node_faces(newNode, wires_e_lists)
@@ -974,7 +1001,7 @@ class SheetTree(object):
       for seams in removalList:
         t_node.child_idx_lists.remove(seams)
     else:
-      print 'got error code: ', self.error_code, ' at Face', str(self.failed_face_idx+1)
+      FreeCAD.Console.PrintError('got error code: '+ str(self.error_code) + ' at Face'+ str(self.failed_face_idx+1) + "\n")
       #Part.show(self.__Shape.Faces[self.failed_face_idx], 'FailedFace')
       
 
@@ -1076,7 +1103,7 @@ class SheetTree(object):
       gotPoint = False
       for tPoint in compPoints:
         if equal_vector(poi, tPoint):
-          print 'got a parent point at Face', fIdx + 1
+          #print 'got a parent point at Face', fIdx + 1
           bPoint = tPoint
           gotPoint = True
           break
@@ -1126,7 +1153,7 @@ class SheetTree(object):
                   bPosi = uLastCon
                 else:
                   bPosi = eList[j-1].Vertexes[oldEIdx].Point
-                  print 'old bPosi: ', bPosi, ' ', oldEIdx
+                  #print 'old bPosi: ', bPosi, ' ', oldEIdx
               else:
                 posi = fEdge.valueAt(minPar + i*iMulti)      
                 bPosi = unbendPoint(posi)
@@ -1224,8 +1251,8 @@ class SheetTree(object):
               uCurve.interpolate([urollPts[0],urollPts[3],urollPts[6],urollPts[9], urollPts[-1]])
               uEdge = uCurve.toShape()
           else:
-            print 'unbendFace, curve type not handled: ' + str(eType) + ' in Face' + str(fIdx+1)
-            FreeCAD.Console.PrintLog('unbendFace, curve type not handled: ' + str(eType) + '\n')
+            #print 'unbendFace, curve type not handled: ' + str(eType) + ' in Face' + str(fIdx+1)
+            FreeCAD.Console.PrintLog('unbendFace, curve type not handled: ' + str(eType) + ' in Face' + str(fIdx+1) + '\n')
             self.error_code = 26
             self.failed_face_idx = fIdx
           
@@ -1235,7 +1262,7 @@ class SheetTree(object):
             for betterEdge in edgeSearchList:
               if equal_edge(betterEdge, uEdge):
                 uEdge = betterEdge
-                print 'replaced an edge for Face', str(fIdx + 1)
+                #print 'replaced an edge for Face', str(fIdx + 1)
                 break
           eList.append(uEdge)
           j += 1
@@ -1250,10 +1277,10 @@ class SheetTree(object):
       bend_node.unfoldCounterList = edgeLists[0]
     
     # edgeLists = Part.sortEdges(eList) now done in the tolerant sort
-    if len(edgeLists) <> len(aFace.Wires): # fix me: this should be obsolete!
-      print "Got a failure: wrong number of wires in Face", str(fIdx + 1), ' !'
-      print 'len edgeLists: ', len(edgeLists), ' Wires: ', len(aFace.Wires)
-      edgeLists = self.repairWire(eList)
+    #if len(edgeLists) <> len(aFace.Wires): # fix me: this should be obsolete!
+      #print "Got a failure: wrong number of wires in Face", str(fIdx + 1), ' !'
+      #print 'len edgeLists: ', len(edgeLists), ' Wires: ', len(aFace.Wires)
+      #edgeLists = self.repairWire(eList)
     
     
     if len(edgeLists) == 1:
@@ -1308,7 +1335,7 @@ class SheetTree(object):
         #Part.show(Part.Face(myWire))
       try:
           #theFace = Part.Face(wires)
-          print 'make cutted face\n' 
+          #print 'make cutted face\n' 
           theFace = faces[0].copy()
           for f in faces[1:]:
             f.translate(-normVec)
@@ -1384,7 +1411,7 @@ class SheetTree(object):
     newIdxList = [0]
     for i in range(len(myWireList)):
       idxList.append(i)
-    print 'original List: ', idxList
+    #print 'original List: ', idxList
     newWire = []
     #newWire.append(myWireList[0])
     idxList.remove(0)
@@ -1682,6 +1709,10 @@ class SheetTree(object):
 
 
 def getUnfold():
+    resPart = None
+    normalVect = None
+    folds = None
+    theName = None
     mylist = Gui.Selection.getSelectionEx()
     # print 'Die Selektion: ',mylist
     # print 'Zahl der Selektionen: ', mylist.__len__()
@@ -1695,7 +1726,7 @@ def getUnfold():
         QtGui.QMessageBox.information(mw,"Error","""Only one flat face has to be selected!""")
       else:
         o = Gui.Selection.getSelectionEx()[0]
-        print o.ObjectName
+        theName = o.ObjectName
         if len(o.SubObjects)>1:
           mw=FreeCADGui.getMainWindow()
           QtGui.QMessageBox.information(mw,"SubelementError","""Only one flat face has to be selected!""")
@@ -1704,6 +1735,7 @@ def getUnfold():
           if hasattr(subelement,'Surface'):
             s_type = str(subelement.Surface)
             if s_type == "<Plane object>":
+              normalVect = subelement.normalAt(0,0)
               mw=FreeCADGui.getMainWindow()
               #QtGui.QMessageBox.information(mw,"Hurra","""Lets try unfolding!""")
               FreeCAD.Console.PrintLog("name: "+ str(subelement) + "\n")
@@ -1723,14 +1755,15 @@ def getUnfold():
                     unfoldTime = time.clock()
                     FreeCAD.Console.PrintLog("time to run the unfold: "+ str(unfoldTime - endzeit) + "\n")
                     folds = Part.Compound(foldLines)
-                    Part.show(folds, 'Fold_Lines')
+                    #Part.show(folds, 'Fold_Lines')
     
                     try:
                         newShell = Part.Shell(theFaceList)
                     except:
                         FreeCAD.Console.PrintLog("couldn't join some faces, show only single faces!\n")
-                        for newFace in theFaceList:
-                          Part.show(newFace)
+                        resPart = Part.Compound(theFaceList)
+                        #for newFace in theFaceList:
+                          #Part.show(newFace)
                     else:
                       
                       try:
@@ -1738,17 +1771,20 @@ def getUnfold():
                           solidTime = time.clock()
                           FreeCAD.Console.PrintLog("time to make the solid: "+ str(solidTime - unfoldTime) + "\n")
                       except:
-                          FreeCAD.Console.PrintLog("couldn't make a solid, show only a shell, Faces in List: "+ str(len(theFaceList)) +"\n") 
-                          Part.show(newShell)
+                          FreeCAD.Console.PrintLog("couldn't make a solid, show only a shell, Faces in List: "+ str(len(theFaceList)) +"\n")
+                          resPart = newShell
+                          #Part.show(newShell)
                           showTime = time.clock()
                           FreeCAD.Console.PrintLog("Show time: "+ str(showTime - unfoldTime) + "\n")
                       else:
                         try:
                           cleanSolid = TheSolid.removeSplitter()
-                          Part.show(cleanSolid)
+                          #Part.show(cleanSolid)
+                          resPart = cleanSolid
                           
                         except:
-                          Part.show(TheSolid)
+                          #Part.show(TheSolid)
+                          resPart = TheSolid
                         showTime = time.clock()
                         FreeCAD.Console.PrintLog("Show time: "+ str(showTime - solidTime) + " total time: "+ str(showTime - startzeit) + "\n")
               
@@ -1766,6 +1802,11 @@ def getUnfold():
           else:
             mw=FreeCADGui.getMainWindow()
             QtGui.QMessageBox.information(mw,"Selection Error","""Sheet UFO works only with a flat face as starter!\n Select a flat face.""")
+    return resPart, folds, normalVect, theName
 
 if __name__ == '__main__':
-  getUnfold()
+  theUnfold, foldLines, nVec, shapeName = getUnfold()
+  if theUnfold:
+    Part.show(theUnfold, shapeName+'_unfolded')
+    Part.show(foldLines, 'Foldlines')
+  
