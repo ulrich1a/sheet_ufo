@@ -123,7 +123,8 @@ unfold_error = {
   13: ('Analysis: Sheet thickness invalid for this face!'), 
   14: ('Analysis: the code can not handle edges without neighbor faces'), 
   15: ('Analysis: the code needs a face at all sheet edges'), 
-  16: ('Analysis: did not find startangle of bend, please post failing sample for analysis'), 
+  16: ('Analysis: did not find startangle of bend, please post failing sample for analysis'),
+  17: ('Analysis: Type of surface not supported for sheet metal parts'), # <SurfaceOfExtrusion object> fix me?
   # error codes for the unfolding
   20: ('Unfold: section wire with less than 4 edges'),
   21: ('Unfold: Unfold: section wire not closed'),
@@ -466,8 +467,14 @@ class SheetTree(object):
     vF_vert = Base.Vector(theVert.X, theVert.Y, theVert.Z)
     if F_type == "<Plane object>":
       distFailure = vF_vert.distanceToPlane (theNode.facePosi, theNode.axis) - self.__thickness
-    if F_type == "<Cylinder object>":
+    elif F_type == "<Cylinder object>":
       distFailure = vF_vert.distanceToLine (theNode.bendCenter, theNode.axis) - theNode.distCenter
+    else: 
+      distFailure = 100.0
+      theNode.error_code = 17  # Analysis: the code needs a face at all sheet edges
+      self.error_code = 17
+      self.failed_face_idx = theNode.idx
+      #Part.show(self.f_list[theNode.idx], 'SurfaceType_not_supported')
     # print "counter face distance: ", dist_v + self.__thickness
     if (distFailure < self.cFaceTol) and (distFailure > -self.cFaceTol):
       return True
