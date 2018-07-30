@@ -172,10 +172,16 @@ def equal_angle(ang1, ang2, p=5):
 
 def equal_edge(edg1, edg2, p=5):
   result = True
-  if not (equal_vertex(edg1.Vertexes[0], edg2.Vertexes[0]) or equal_vertex(edg1.Vertexes[0], edg2.Vertexes[1])):
-    result = False
-  if not (equal_vertex(edg1.Vertexes[1], edg2.Vertexes[0]) or equal_vertex(edg1.Vertexes[1], edg2.Vertexes[1])):
-    result = False
+  if len(edg1.Vertexes) > 1:
+    if not (equal_vertex(edg1.Vertexes[0], edg2.Vertexes[0]) or equal_vertex(edg1.Vertexes[0], edg2.Vertexes[1])):
+      result = False
+    if not (equal_vertex(edg1.Vertexes[1], edg2.Vertexes[0]) or equal_vertex(edg1.Vertexes[1], edg2.Vertexes[1])):
+      result = False
+  else:
+    if not (equal_vertex(edg1.Vertexes[0], edg2.Vertexes[0])):
+      result = False
+    if len(edg2.Vertexes) > 1:
+      result = False
   return result
 
 
@@ -203,7 +209,6 @@ class Simple_node(object):
     # self.axis for 'Flat'-face: vector pointing from the surface into the metal
     self.bend_dir = None # bend direction values: "up" or "down"
     self.bend_angle = None # angle in radians
-    self.angleSign = None # sign for rotations in unbendFace
     self.tan_vec = None # direction of translation for Bend nodes
     self.k_Factor = None # k-factor according to DIN 6935
     self._trans_length = None # length of translation for Bend nodes, k-factor used according to DIN 6935
@@ -691,43 +696,44 @@ class SheetTree(object):
     len_start = edgePar
       
     newNode.bend_angle = angle_end - angle_start
+    angle_tan = angle_start + newNode.bend_angle/6.0 # need to have the angle_tan before correcting the sign
+
     if newNode.bend_angle < 0.0:
-      angle_tan = angle_start - math.pi/2.0
-    else:
-      angle_tan = angle_start + math.pi/2.0
-
-    tanPos = self.__Shape.Faces[face_idx].valueAt(angle_tan,len_start)
-    tan_vec = radial_vector(tanPos, s_Center, s_Axis)
-    newNode.tan_vec = tan_vec
-      
-    first_vec = radial_vector(edge_vec, s_Center, s_Axis)
-    cross_vec = first_vec.cross(tan_vec)
-    triple_prod = cross_vec.dot(s_Axis)
-    FreeCAD.Console.PrintLog(" the new bend_angle: "+ str(math.degrees(newNode.bend_angle))+ "triple_prod: " + str(triple_prod) + "\n")
-    # testing showed, that the bend_angle has to be changed in sign
-    # at the following conditions.
-    if ((triple_prod > 0.0) and (newNode.bend_angle > 0.0)) or \
-      ((triple_prod < 0.0) and (newNode.bend_angle < 0.0)):
       newNode.bend_angle = -newNode.bend_angle
-      FreeCAD.Console.PrintLog("minus bend_angle\n")
 
-    # determine a sign for angle calculations needed in function unbendFace:
-    # This is the sign of the triple_prod
-    newNode.angleSign = triple_prod
+    first_vec = radial_vector(edge_vec, s_Center, s_Axis)
+    tanPos = self.__Shape.Faces[face_idx].valueAt(angle_tan,len_start)
+    sec_vec = radial_vector(tanPos, s_Center, s_Axis)
+
+
+    cross_vec = first_vec.cross(sec_vec)
+    triple_prod = cross_vec.dot(s_Axis)
+    if triple_prod < 0:
+      newNode.axis = -newNode.axis
+      s_Axis = -s_Axis
+      
+    #tan_vec = radial_vector(tanPos, s_Center, s_Axis)
+    tan_vec = s_Axis.cross(first_vec)
+    #Part.show(Part.makeLine(tanPos, tanPos + 10 * tan_vec), 'tan_Vec')
+    newNode.tan_vec = tan_vec
 
 
     if newNode.bend_dir == 'up':
       newNode.k_Factor = 0.65 + 0.5*math.log10(theFace.Surface.Radius/self.__thickness)
-      FreeCAD.Console.PrintLog("Face"+ str(newNode.idx+1)+ " k-factor: "+ str(newNode.k_Factor) + "\n")
+      if newNode.k_Factor < 0:
+        newNode.k_Factor = 0
+        
+      FreeCAD.Console.PrintLog("up Face"+ str(newNode.idx+1)+ " k-factor: "+ str(newNode.k_Factor) + "\n")
       newNode._trans_length = (theFace.Surface.Radius + newNode.k_Factor * self.__thickness/2.0) * newNode.bend_angle
     else:
       newNode.k_Factor = 0.65 + 0.5*math.log10((theFace.Surface.Radius - self.__thickness)/self.__thickness)
+      if newNode.k_Factor < 0:
+        newNode.k_Factor = 0
+      FreeCAD.Console.PrintLog("down Face"+ str(newNode.idx+1)+ " k-factor: "+ str(newNode.k_Factor) + "\n")
       newNode._trans_length = (theFace.Surface.Radius - self.__thickness \
                                 + newNode.k_Factor * self.__thickness/2.0) * newNode.bend_angle
-    if newNode._trans_length < 0.0:
-      newNode._trans_length = -newNode._trans_length
-      # the _trans_length is always positive, due to correct tan_vec
-      
+
+    #print 'newNode._trans_length: ', newNode._trans_length
     cAngle_0 = self.__Shape.Faces[newNode.c_face_idx].ParameterRange[0]
     cAngle_1 = self.__Shape.Faces[newNode.c_face_idx].ParameterRange[1]
     
@@ -825,17 +831,13 @@ class SheetTree(object):
             FreeCAD.Console.PrintLog( "found counter-face"+ str(i + 1) + "\n")
             counterFaceList.append([i, counterDistance])
             gotCFace = True
-            #newNode.c_face_idx = i
-            #self.index_list.remove(i)
-            #newNode.nfIndexes.append(i)
-            # Part.show(self.__Shape.Faces[newNode.c_face_idx])
           else:
             counter_found = False
             FreeCAD.Console.PrintLog("faceMiddle: " + str(faceMiddle) + " counterMiddle: "+ str(counterMiddle) + "\n")
       
       if gotCFace:
         newNode.c_face_idx = counterFaceList[0][0]
-        if len(counterFaceList) > 1:
+        if len(counterFaceList) > 1: # check if more than one counterFace was detected!
           counterDistance = counterFaceList[0][1]
           for i in range(1,len(counterFaceList)):
             if counterDistance > counterFaceList[i][1]:
@@ -855,11 +857,10 @@ class SheetTree(object):
             ppVec = newNode.p_node.p_node.axis # normal of the flat face
             myVec = newNode.axis # normal of the flat face
             theAxis = newNode.p_node.axis # Bend axis
-            #sign = newNode.p_node.angleSign * -1.0
-            angle = math.atan2(ppVec.cross(myVec).dot(-theAxis), ppVec.dot(myVec))
-            #if angle < -math.pi/8:
-            #  angle = angle + 2*math.pi
-            #print 'compare angles, bend: ', newNode.p_node.bend_angle, ' ', sign, ' ', angle
+            angle = math.atan2(ppVec.cross(myVec).dot(theAxis), ppVec.dot(myVec))
+            if angle < -math.pi/8:
+              angle = angle + 2*math.pi
+            #print 'compare angles, bend: ', newNode.p_node.bend_angle, ' ', angle
             newNode.p_node.bend_angle = angle # This seems to be an improvement!
             # newNode.p_node.bend_angle = (angle + newNode.p_node.bend_angle) / 2.0 # this is a bad approach
         
@@ -895,10 +896,6 @@ class SheetTree(object):
       newNode.distCenter = thick_test
       # print "Face idx: ", face_idx, " bend_dir: ", newNode.bend_dir
       FreeCAD.Console.PrintLog("Face" + str(face_idx+1) + " Type: " + str(newNode.node_type)+ " bend_dir: "+ str(newNode.bend_dir) + "\n")
-
-
-      # Here was the old place to calculate the bend angle
-      #self.getBendAngle(newNode, wires_e_lists)
 
 
       # calculate mean point of face:
@@ -1059,11 +1056,11 @@ class SheetTree(object):
     kFactor = bend_node.k_Factor
     thick = self.__thickness
     transRad = bRad + kFactor * thick/2.0
+    #print 'transRad Face', str(fIdx+1), ' ', bRad, ' ', kFactor, ' ', thick
     tanVec = bend_node.tan_vec
     aFace = self.f_list[fIdx]
     #aFace = aFace.removeSplitter()
     
-    sign = bend_node.angleSign * -1.0
     normVec = radial_vector(bend_node.p_edge.Vertexes[0].Point, cent, axis)
     
     compPoints = []
@@ -1073,7 +1070,7 @@ class SheetTree(object):
       if len(bend_node.child_list) > 0:
         cTopFace = self.f_list[bend_node.child_list[0].idx].copy()
         trans_vec = bend_node.tan_vec * bend_node._trans_length
-        cTopFace.rotate(cent, axis, math.degrees(bend_node.bend_angle))
+        cTopFace.rotate(cent, axis, math.degrees(-bend_node.bend_angle))
         cTopFace.translate(trans_vec)
         for p in cTopFace.Vertexes:
           compPoints.append(p.Point)
@@ -1089,7 +1086,7 @@ class SheetTree(object):
       if len(bend_node.child_list) > 0:
         cCounterFace = self.f_list[bend_node.child_list[0].c_face_idx].copy()
         trans_vec = bend_node.tan_vec * bend_node._trans_length
-        cCounterFace.rotate(cent, axis, math.degrees(bend_node.bend_angle))
+        cCounterFace.rotate(cent, axis, math.degrees(-bend_node.bend_angle))
         cCounterFace.translate(trans_vec)
         for p in cCounterFace.Vertexes:
           compPoints.append(p.Point)
@@ -1117,10 +1114,12 @@ class SheetTree(object):
 
       if not gotPoint:
         radVec = radial_vector(poi, cent, axis)
-        angle = sign * math.atan2(nullVec.cross(radVec).dot(-axis), nullVec.dot(radVec))
+        angle = math.atan2(nullVec.cross(radVec).dot(axis), nullVec.dot(radVec))
+        #print 'point Face', str(fIdx+1), ' ', angle
         if angle < -math.pi/8:
           angle = angle + 2*math.pi
-        rotVec = self.rotateVec(poi.sub(cent), sign*angle, axis)
+        rotVec = self.rotateVec(poi.sub(cent), -angle, axis)
+        #print 'point if Face', str(fIdx+1), ' ', angle, ' ', transRad*angle
         bPoint = cent + rotVec + tanVec*transRad*angle
       return bPoint
     
@@ -1133,7 +1132,8 @@ class SheetTree(object):
 
     for aWire in fWireList:
         uEdge = None
-        idxList, conDict, lastCon = self.sortEdgesTolerant(aWire.Edges)
+        idxList, conDict, lastCon, closedW = self.sortEdgesTolerant(aWire.Edges)
+          
         #cVert = Part.Vertex(lastCon)
         uLastCon = unbendPoint(lastCon)
         #print 'idxList: ', idxList, ' conDict: ', conDict, ' ', uLastCon
@@ -1214,12 +1214,10 @@ class SheetTree(object):
               else:
                 posi = fEdge.Vertexes[vIdx].Point
                 bPosi = unbendPoint(posi)
-
             
             # for para in parList:
               # #print "parameter: ",fEdge.valueAt(para)
               # posi = fEdge.valueAt(para)
-    
               # bPosi = unbendPoint(posi)
               urollPts.append(bPosi)
             uEdge = Part.makeLine(urollPts[0], urollPts[1])
@@ -1230,21 +1228,27 @@ class SheetTree(object):
             minPar, maxPar = fEdge.ParameterRange
             #print "the Parameterrange: ", minPar, " - ", maxPar, " Type: ",eType
             iMulti = (maxPar-minPar)/divisions
-            oldEIdx, pIdx = conDict[fEdgeIdx]
-            if pIdx == 1: pIdx = divisions
-            
-            for i in range(divisions+1):
-              #print "j, i: ", j," ",i," ",fEdge.valueAt(minPar + i*iMulti)
-              if i == pIdx:
-                if j == 0:
-                  bPosi = uLastCon
+            if closedW:
+              oldEIdx, pIdx = conDict[fEdgeIdx]
+              if pIdx == 1: pIdx = divisions
+              
+              for i in range(divisions+1):
+                #print "j, i: ", j," ",i," ",fEdge.valueAt(minPar + i*iMulti)
+                if i == pIdx:
+                  if j == 0:
+                    bPosi = uLastCon
+                  else:
+                    bPosi = eList[j-1].Vertexes[oldEIdx].Point
+                    #print 'old bPosi: ', bPosi, ' ', oldEIdx
                 else:
-                  bPosi = eList[j-1].Vertexes[oldEIdx].Point
-                  #print 'old bPosi: ', bPosi, ' ', oldEIdx
-              else:
+                  posi = fEdge.valueAt(minPar + i*iMulti)      
+                  bPosi = unbendPoint(posi)
+                urollPts.append(bPosi)
+            else: 
+              for i in range(divisions+1):
                 posi = fEdge.valueAt(minPar + i*iMulti)      
                 bPosi = unbendPoint(posi)
-              urollPts.append(bPosi)
+                urollPts.append(bPosi)
             #testPoly = Part.makePolygon(urollPts)
             #Part.show(testPoly, 'testPoly'+ str(fIdx+1) + '_')
             uCurve = Part.BSplineCurve()
@@ -1267,7 +1271,7 @@ class SheetTree(object):
           if mode == 'side':
             #print 'need to search the unfold list'
             for betterEdge in edgeSearchList:
-              if equal_edge(betterEdge, uEdge):
+              if equal_edge(uEdge, betterEdge):
                 uEdge = betterEdge
                 #print 'replaced an edge for Face', str(fIdx + 1)
                 break
@@ -1282,12 +1286,6 @@ class SheetTree(object):
       bend_node.unfoldTopList = edgeLists[0]
     if mode == 'counter':
       bend_node.unfoldCounterList = edgeLists[0]
-    
-    # edgeLists = Part.sortEdges(eList) now done in the tolerant sort
-    #if len(edgeLists) <> len(aFace.Wires): # fix me: this should be obsolete!
-      #print "Got a failure: wrong number of wires in Face", str(fIdx + 1), ' !'
-      #print 'len edgeLists: ', len(edgeLists), ' Wires: ', len(aFace.Wires)
-      #edgeLists = self.repairWire(eList)
     
     
     if len(edgeLists) == 1:
@@ -1377,9 +1375,13 @@ class SheetTree(object):
     conDict = {}
     
     startVert  = myEdgeList[eIndex].Vertexes[0]
-    vert = myEdgeList[eIndex].Vertexes[1]
-    vIdx = 1
-
+    if len(myEdgeList[eIndex].Vertexes) > 1:
+      vert = myEdgeList[eIndex].Vertexes[1]
+      vIdx = 1
+    else:
+      vert = myEdgeList[eIndex].Vertexes[0]
+      vIdx = 0
+      
     while not gotConnection:
       for eIdx in idxList:
         edge = myEdgeList[eIdx]
@@ -1389,18 +1391,20 @@ class SheetTree(object):
           #print 'found eIdx: ', eIdx
           newIdxList.append(eIdx)
           conDict[eIdx] = vIdx, 0
-          vert = edge.Vertexes[1]
-          vIdx = 1
+          if len(edge.Vertexes) > 1:
+            vert = edge.Vertexes[1]
+            vIdx = 1
           break
-        if equal_vertex(vert, edge.Vertexes[1]):
-          idxList.remove(eIdx)
-          eIndex = eIdx
-          #print 'found eIdx: ', eIdx
-          newIdxList.append(eIdx)
-          conDict[eIdx] = vIdx, 1
-          vert = edge.Vertexes[0]
-          vIdx = 0
-          break
+        if len(edge.Vertexes) > 1:
+          if equal_vertex(vert, edge.Vertexes[1]):
+            idxList.remove(eIdx)
+            eIndex = eIdx
+            #print 'found eIdx: ', eIdx
+            newIdxList.append(eIdx)
+            conDict[eIdx] = vIdx, 1
+            vert = edge.Vertexes[0]
+            vIdx = 0
+            break
       if (len(idxList) == 0):
         gotConnection = True 
       if equal_vertex(vert, startVert):
@@ -1408,81 +1412,9 @@ class SheetTree(object):
         conDict[0] = vIdx, 0
         gotConnection = True
         closedWire = True
-
-    return newIdxList, conDict, vert.Point
+        
+    return newIdxList, conDict, vert.Point, closedWire
     
-
-  def repairWire(self, myWireList):
-    newWireLists = []
-    idxList = []
-    newIdxList = [0]
-    for i in range(len(myWireList)):
-      idxList.append(i)
-    #print 'original List: ', idxList
-    newWire = []
-    #newWire.append(myWireList[0])
-    idxList.remove(0)
-    gotWire = False
-    closedWire = False
-
-    wIndex = 0
-    startVert  = myWireList[wIndex].Vertexes[0]
-    vert = myWireList[wIndex].Vertexes[1]
-    while not gotWire:
-      for eIdx in idxList:
-        edge = myWireList[eIdx]
-        eType = str(edge.Curve)
-        if equal_vertex(vert, edge.Vertexes[0]):
-          print 'the distance betw. Verts: ', vert.Point - edge.Vertexes[0].Point
-          idxList.remove(eIdx)
-          if  "<Line" in eType:
-            repEdge = Part.makeLine(vert.Point, edge.Vertexes[1].Point)
-            newWire.append(repEdge)
-            print 'the repair distance: ', vert.Point - repEdge.Vertexes[0].Point
-          else:
-            newWire.append(edge)
-              
-          wIndex = eIdx
-          vert = edge.Vertexes[1]
-          print 'found eIdx: ', eIdx
-          newIdxList.append(eIdx)
-          break
-        if equal_vertex(vert, edge.Vertexes[1]):
-          print 'the distance betw. Verts: ', vert.Point - edge.Vertexes[1].Point
-          idxList.remove(eIdx)
-          if  "<Line" in eType:
-            repEdge = Part.makeLine(edge.Vertexes[0].Point, vert.Point)
-            newWire.append(repEdge)
-            print 'the repair distance: ', vert.Point - repEdge.Vertexes[1].Point
-          else:
-            newWire.append(edge)
-          wIndex = eIdx
-          vert = edge.Vertexes[0]
-          print 'found eIdx: ', eIdx
-          newIdxList.append(eIdx)
-          break
-      if (len(idxList) == 0):
-        gotWire = True 
-      if equal_vertex(vert, startVert):
-        print 'got last connection'
-        if "<Line" in str(myWireList[0].Curve):
-          repEdge = Part.makeLine(vert.Point, myWireList[0].Vertexes[1].Point)
-          newWire.append(repEdge)
-        else:
-          newWire.append(myWireList[0])
-        gotWire = True
-        closedWire = True
-    print 'new List: ', newIdxList, ' len newWire: ', len(newWire)
-    #for e in 
-    # fix me: errorhandling is missing
-    sortedList = Part.__sortEdges__(newWire)
-    testWire = Part.Wire(sortedList)
-    Part.show(testWire, 'repairedWire')
-    testFace = Part.Face(testWire)
-    Part.show(testFace, 'repairedFace')
-    newWireLists.append(sortedList)
-    return newWireLists
-
 
   def makeFoldLines(self, bend_node, nullVec):
     axis = bend_node.axis
@@ -1493,7 +1425,6 @@ class SheetTree(object):
     transRad = bRad + kFactor * thick/2.0
     tanVec = bend_node.tan_vec
     theFace = self.f_list[bend_node.idx]
-    sign = bend_node.angleSign * -1.0
     
     angle_0 = theFace.ParameterRange[0]
     angle_1 = theFace.ParameterRange[1]
@@ -1531,10 +1462,10 @@ class SheetTree(object):
         for lVert in fEdge.Vertexes:
           posi = lVert.Point
           radVec = radial_vector(posi, cent, axis)
-          angle = sign * math.atan2(nullVec.cross(radVec).dot(-axis), nullVec.dot(radVec))
+          angle = math.atan2(nullVec.cross(radVec).dot(axis), nullVec.dot(radVec))
           if angle < 0:
             angle = angle + 2*math.pi
-          rotVec = self.rotateVec(posi.sub(cent), sign*angle, axis)
+          rotVec = self.rotateVec(posi.sub(cent), -angle, axis)
           
           bPosi = cent + rotVec + tanVec*transRad*angle
           
@@ -1693,10 +1624,10 @@ class SheetTree(object):
     if node.node_type == 'Bend':
       trans_vec = node.tan_vec * node._trans_length
       for bFaces in theShell:
-        bFaces.rotate(self.f_list[node.idx].Surface.Center,node.axis,math.degrees(node.bend_angle))
+        bFaces.rotate(self.f_list[node.idx].Surface.Center,node.axis,math.degrees(-node.bend_angle))
         bFaces.translate(trans_vec)
       for fold in theFoldLines:
-        fold.rotate(self.f_list[node.idx].Surface.Center,node.axis,math.degrees(node.bend_angle))
+        fold.rotate(self.f_list[node.idx].Surface.Center,node.axis,math.degrees(-node.bend_angle))
         fold.translate(trans_vec)
       if self.error_code == None:
         #nodeShell = self.generateBendShell(node)
