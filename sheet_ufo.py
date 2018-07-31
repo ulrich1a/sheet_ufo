@@ -716,6 +716,15 @@ class SheetTree(object):
     tan_vec = s_Axis.cross(first_vec)
     #Part.show(Part.makeLine(tanPos, tanPos + 10 * tan_vec), 'tan_Vec')
     newNode.tan_vec = tan_vec
+    #make a better tan_vec based on the parent face normal and the parent edge:
+    if P_node.node_type == 'Flat':
+      pVec = P_edge.Vertexes[1].Point - P_edge.Vertexes[0].Point
+      pVec = pVec.normalize()
+      pTanVec = P_node.axis.cross(pVec)
+      if (tan_vec - pTanVec).Length > 1.0:
+        newNode.tan_vec = -pTanVec
+      else:
+        newNode.tan_vec = pTanVec
 
 
     if newNode.bend_dir == 'up':
@@ -794,7 +803,7 @@ class SheetTree(object):
 
       newNode.axis = ext_Vec
       axis_line = Part.makeLine(s_Posi.add(ext_Vec), s_Posi)
-      # Part.show(axis_line)
+      #Part.show(axis_line, 'axis_line'+str(face_idx+1))
       
       # nead a mean point of the face to avoid false counter faces
       faceMiddle = Base.Vector(0.0,0.0,0.0) # calculating a mean vector
@@ -917,7 +926,6 @@ class SheetTree(object):
           #print "found counter Face", such_list[i]+1
           newNode.c_face_idx = i
           self.index_list.remove(i)
-          
           newNode.nfIndexes.append(i)
           # Part.show(self.__Shape.Faces[newNode.c_face_idx])
           break
@@ -1067,13 +1075,14 @@ class SheetTree(object):
     if mode == 'top':
       for p in self.f_list[bend_node.p_node.idx].Vertexes:
         compPoints.append(p.Point)
-      if len(bend_node.child_list) > 0:
-        cTopFace = self.f_list[bend_node.child_list[0].idx].copy()
-        trans_vec = bend_node.tan_vec * bend_node._trans_length
-        cTopFace.rotate(cent, axis, math.degrees(-bend_node.bend_angle))
-        cTopFace.translate(trans_vec)
-        for p in cTopFace.Vertexes:
-          compPoints.append(p.Point)
+      # This has no effect, was a short thinking.
+      #if len(bend_node.child_list) > 0:
+        #cTopFace = self.f_list[bend_node.child_list[0].idx].copy()
+        #trans_vec = bend_node.tan_vec * bend_node._trans_length
+        #cTopFace.rotate(cent, axis, math.degrees(-bend_node.bend_angle))
+        #cTopFace.translate(trans_vec)
+        #for p in cTopFace.Vertexes:
+          #compPoints.append(p.Point)
 
       #need to copy the child face, if it exist and rotate and translate it.
       # here the child Face to do
@@ -1083,13 +1092,14 @@ class SheetTree(object):
     if mode == 'counter':
       for p in self.f_list[bend_node.p_node.c_face_idx].Vertexes:
         compPoints.append(p.Point)
-      if len(bend_node.child_list) > 0:
-        cCounterFace = self.f_list[bend_node.child_list[0].c_face_idx].copy()
-        trans_vec = bend_node.tan_vec * bend_node._trans_length
-        cCounterFace.rotate(cent, axis, math.degrees(-bend_node.bend_angle))
-        cCounterFace.translate(trans_vec)
-        for p in cCounterFace.Vertexes:
-          compPoints.append(p.Point)
+      # This has no effect, was a short thinking.
+      #if len(bend_node.child_list) > 0:
+        #cCounterFace = self.f_list[bend_node.child_list[0].c_face_idx].copy()
+        #trans_vec = bend_node.tan_vec * bend_node._trans_length
+        #cCounterFace.rotate(cent, axis, math.degrees(-bend_node.bend_angle))
+        #cCounterFace.translate(trans_vec)
+        #for p in cCounterFace.Vertexes:
+          #compPoints.append(p.Point)
 
     if mode == 'side':
       edgeSearchList = []
@@ -1107,7 +1117,7 @@ class SheetTree(object):
       gotPoint = False
       for tPoint in compPoints:
         if equal_vector(poi, tPoint):
-          #print 'got a parent point at Face', fIdx + 1
+          print 'got a parent point at Face', fIdx + 1
           bPoint = tPoint
           gotPoint = True
           break
