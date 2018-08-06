@@ -190,6 +190,8 @@ class Simple_node(object):
   the analysis of a sheet-metal-part.
   Each flat or bend part of the metal-sheet gets a node in the tree.
   The indexes are the number of the face in the original part.
+  Faces of the edge of the metal-sheet need in cases to be split.
+  These new faces are added to the index list.
   '''
   def __init__(self, f_idx=None, Parent_node= None, Parent_edge = None):
     self.idx = f_idx  # index of the "top-face"
@@ -210,6 +212,9 @@ class Simple_node(object):
     self.bend_dir = None # bend direction values: "up" or "down"
     self.bend_angle = None # angle in radians
     self.tan_vec = None # direction of translation for Bend nodes
+    self.oppositePoint = None # Point of a vertex on the opposite site, used to align points to the sheet plane
+    self.vertexDict = {} # Vertexes of a bend, original and unbend coordinates, flags p, c, t, o
+    self.edgeDict = {} # unbend edges dictionary, key is a combination of indexes to vertexDict.
     self.k_Factor = None # k-factor according to DIN 6935
     self._trans_length = None # length of translation for Bend nodes, k-factor used according to DIN 6935
     self.analysis_ok = True # indicator if something went wrong with the analysis of the face
@@ -930,9 +935,81 @@ class SheetTree(object):
           # Part.show(self.__Shape.Faces[newNode.c_face_idx])
           break
 
+
+      # Need a Vertex from the parent node on the opposite side of the 
+      # sheet metal part. This vertex is used to align other vertexes
+      # to the unbended sheet metal plane.
+      # The used vertex should be one of the opposite Face of the parent
+      # node with the closest distance to a line through edge_vec.
+      if P_node.node_type == 'Flat':
+        searchAxis = P_node.axis
+      else:
+        searchAxis = radVector
+            
+      maxDistance = 1000
+      bestPoint = None
+      for theVert in self.__Shape.Faces[P_node.c_face_idx].Vertexes:
+        vertDist = theVert.Point.distanceToLine(edge_vec, searchAxis)
+        if vertDist < maxDistance:
+          maxDistance = vertDist
+          bestPoint = theVert.Point
+           
+      newNode.oppositePoint = bestPoint
+      #Part.show(Part.makeLine(bestPoint, edge_vec), 'bestPoint'+str(face_idx+1)+'_')
+      
       self.getBendAngle(newNode, wires_e_lists)
+            
+       # As I have learned, that it is necessary to apply corrections to Points / Vertexes,
+      # it will be difficult to have all vertexes of the faces of a bend to fit together.
+      # Therefore a dictionary is introduced, which holds the original coordinates and
+      # the unbend coordinates for the vertexes of the bend. It contains also flags,
+      # indicating if a point is part of the parent node (p) or child node (c), top face (t) or
+      # opposite face (o). All in newNode.vertexDict
+      # Structure: key: Flagstring, Base.Vector(original), Base.Vector(unbend)
+      # The unbend coordinates should be added before processing the top face and the
+      # opposite face in the generateBendShell2 procedure.
+      # Next is to identify for each vertex in the edges the corresponding vertex in 
+      # newNode.vertexDict. 
+      # Create a dictionary for the unbend edges. The key is a combination of the
+      # vertex indexes. The higher index is shifted 16 bits. simple_node.edgeDict
+      # Next is to unbend the edges, using the points in newNode.vertexDict as
+      # starting and ending vertex.
+      # Store the edge in self.edgeDict and process it to make a wire and a face.
+      #
+      # The side faces uses only the unbend vertexes from newNode.vertexDict,
+      # the edges from self.edgeDict are recycled.
+      # Only new to generate edges may need other vertexes too.
+      vertDictIdx = 0 # Index as key in newNode.vertexDict
+      for theVert in self.__Shape.Faces[face_idx].Vertexes:
+        flagStr = 't'
+        origVec = theVert.Point
+        unbendVec = None
+        if equal_vertex(theVert, P_edge.Vertexes[0]):
+          flagStr = flagStr + 'p0'
+          origVec = P_edge.Vertexes[0].Point
+          unbendVec = origVec
+        else:
+          if equal_vertex(theVert, P_edge.Vertexes[1]):
+            flagStr = flagStr + 'p1'
+            origVec = P_edge.Vertexes[1].Point
+            unbendVec = origVec
+        print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
+        newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
+        vertDictIdx += 1
 
-
+      for theVert in self.__Shape.Faces[newNode.c_face_idx].Vertexes:
+        flagStr = 'o'
+        origVec = theVert.Point
+        unbendVec = None
+        for pVert in self.__Shape.Faces[P_node.c_face_idx].Vertexes:
+          if equal_vertex(theVert, pVert):
+            flagStr = flagStr + 'p'
+            origVec = P_edge.Vertexes[0].Point
+            unbendVec = origVec
+        print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
+        newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
+        vertDictIdx += 1
+      
     # Part.show(self.__Shape.Faces[newNode.c_face_idx])
     # Part.show(self.__Shape.Faces[newNode.idx])
     if newNode.c_face_idx == None:
@@ -942,6 +1019,9 @@ class SheetTree(object):
       self.failed_face_idx = face_idx
       FreeCAD.Console.PrintLog("No counter-face Debugging Thickness: "+ str(self.__thickness) + "\n")
       Part.show(self.__Shape.Faces[face_idx], 'FailedFace'+ str(face_idx + 1) +'_')
+
+
+
 
     # now we call the new code
     self.get_node_faces(newNode, wires_e_lists)
@@ -1058,6 +1138,12 @@ class SheetTree(object):
 
 
   def unbendFace(self, fIdx, bend_node, nullVec, mode = 'side'):
+    '''
+    The self.vertexDict requires a further data structure to hold for
+    each edge in a list the point indexes to the vertexes of the bend node.
+    key: Index to myEdgeList, content: List of indexes to the self.vertexDict.
+    '''
+    
     axis = bend_node.axis
     cent = bend_node.bendCenter
     bRad = bend_node.innerRadius
@@ -1104,6 +1190,9 @@ class SheetTree(object):
         cCounterFace.translate(trans_vec)
         for p in cCounterFace.Vertexes:
           compChildPoints.append(p.Point)
+      chord = cent.sub(bend_node.oppositePoint)
+      norm = axis.cross(chord)
+      compRadialVec = axis.cross(norm)
 
     if mode == 'side':
       edgeSearchList = []
@@ -1116,12 +1205,13 @@ class SheetTree(object):
         compPoints.append(tEdge.Vertexes[1].Point)
         edgeSearchList.append(tEdge)
       #print 'compPoints: ', compPoints
+    
 
     def unbendPoint(poi):
       gotPoint = False
       for tPoint in compPoints:
         if equal_vector(poi, tPoint):
-          print 'got a parent point at Face', fIdx + 1
+          #print 'got a parent point at Face', fIdx + 1
           bPoint = tPoint
           gotPoint = True
           break
@@ -1134,19 +1224,19 @@ class SheetTree(object):
           angle = angle + 2*math.pi
         rotVec = self.rotateVec(poi.sub(cent), -angle, axis)
         #print 'point if Face', str(fIdx+1), ' ', angle, ' ', transRad*angle
-        if mode == 'top':
+        if (mode == 'top') or (mode == 'counter'):
           chord = cent.sub(cent + rotVec)
           norm = axis.cross(chord)
           correctionVec = compRadialVec.sub(axis.cross(norm))
           #correctionVec = axis.cross(norm).sub(compRadialVec)
-          print 'origVec ', axis.cross(norm), ' compRadialVec ', compRadialVec
+          #print 'origVec ', axis.cross(norm), ' compRadialVec ', compRadialVec
           bPoint = cent + rotVec + correctionVec + tanVec*transRad*angle
         else:
           bPoint = cent + rotVec + tanVec*transRad*angle
       
       for tPoint in compChildPoints:
         if equal_vector(bPoint, tPoint):
-          print 'got a child point at Face', fIdx + 1
+          #print 'got a child point at Face', fIdx + 1
           bPoint = tPoint
           break
       
@@ -1162,6 +1252,17 @@ class SheetTree(object):
     for aWire in fWireList:
         uEdge = None
         idxList, conDict, lastCon, closedW = self.sortEdgesTolerant(aWire.Edges)
+        # search for indexes to original Vertexes of the bend node
+        '''
+        # is this the right place to do this?
+        for fEdgeIdx in idxList:
+          fEdge = aWire.Edges[fEdgeIdx]
+          vIdx = 0
+          for vert in fEdge.Vertexes:
+            for oVertIdx in bend_node.vertexDict:
+              ? = 
+              if equal_vector(vert.Point, 
+        '''
           
         #cVert = Part.Vertex(lastCon)
         uLastCon = unbendPoint(lastCon)
@@ -1340,7 +1441,7 @@ class SheetTree(object):
             #for w in eList:
               #Part.show(w, 'exceptEdge')
               #print 'exception type: ', str(w.Curve)
-            #Part.show(myWire, 'exceptionWire'+ str(fIdx+1)+'_')
+            Part.show(myWire, 'exceptionWire'+ str(fIdx+1)+'_')
             secWireList = myWire.Edges[:]
             thirdWireList = Part.__sortEdges__(secWireList)
             theFace = Part.makeFilledFace(thirdWireList)
@@ -1391,7 +1492,15 @@ class SheetTree(object):
     '''
     sort edges from an existing wire.
     returns an index list
-    returns a dict of indexes of connecting vertexes
+    returns:
+      a new sorted list of indexes to edges of the sorted wire
+      a dict of indexes of connecting vertexes: conDict
+      the last Vertex of the Wire
+      flag if wire is closed or not (a wire of a cylinder mantle is not closed!)
+    Key: Index to myEdgeList
+    contains vertex indexes of connecting edges:
+    own Vertex to next edge, Index of connected Vertex at next edge
+    
     '''
     eIndex = 0 
     newEdgeList = []
@@ -1507,10 +1616,48 @@ class SheetTree(object):
         print 'fix me! make errorcondition'
         
     return wireList
+  
+  def unbendVertDict(self, bend_node, cent, axis, nullVec):
+    '''
+    calculate the unbend points in the vertexDict.
+    '''
+    def unbendDictPoint(poi, compRadialVec):
+      radVec = radial_vector(poi, cent, axis)
+      angle = math.atan2(nullVec.cross(radVec).dot(axis), nullVec.dot(radVec))
+      #print 'point Face', str(fIdx+1), ' ', angle
+      if angle < -math.pi/8:
+        angle = angle + 2*math.pi
+      rotVec = self.rotateVec(poi.sub(cent), -angle, axis)
+      #print 'point if Face', str(fIdx+1), ' ', angle, ' ', transRad*angle
+      chord = cent.sub(cent + rotVec)
+      norm = axis.cross(chord)
+      correctionVec = compRadialVec.sub(axis.cross(norm))
+      #print 'origVec ', axis.cross(norm), ' compRadialVec ', compRadialVec
+      bPoint = cent + rotVec + correctionVec + tanVec*transRad*angle
+      return bPoint
 
+    thick = self.__thickness
+    transRad = bend_node.innerRadius + bend_node.k_Factor * thick/2.0
+    tanVec = bend_node.tan_vec
+
+    chord = cent.sub(bend_node.p_edge.Vertexes[0].Point)
+    norm = axis.cross(chord)
+    topCompRadialVec = axis.cross(norm)
+
+    chord = cent.sub(bend_node.oppositePoint)
+    norm = axis.cross(chord)
+    oppCompRadialVec = axis.cross(norm)
+      
+    for i in bend_node.vertexDict:
+      flagStr, origVec, unbendVec = bend_node.vertexDict[i]
+      if not ('p' in flagStr):
+        if 't' in flagStr:
+          unbendVec = unbendDictPoint(origVec, topCompRadialVec)
+        else:
+          unbendVec = unbendDictPoint(origVec, oppCompRadialVec)
+        bend_node.vertexDict[i] = flagStr, origVec, unbendVec
           
   def generateBendShell2(self, bend_node):
-    
     '''
     This function takes a cylindrical bend part of sheet metal and 
     returns a flat version of that bend part.
@@ -1525,6 +1672,10 @@ class SheetTree(object):
     #Part.show(nullVec_line, 'nullVec_line'+ str(bend_node.idx+1)+'_')
     #tanVec_line = Part.makeLine(zeroVert.Point, zeroVert.Point + bend_node.tan_vec*bend_node.innerRadius)
     #Part.show(tanVec_line, 'tanVec_line'+ str(bend_node.idx+1)+'_')
+    
+    # calculate the unbend points in the bend_ node.vertexDict
+    self.unbendVertDict(bend_node, theCenter, theAxis, nullVec)
+    
     
     bendFaceList = bend_node.nfIndexes[:]
     bendFaceList.remove(bend_node.idx)
