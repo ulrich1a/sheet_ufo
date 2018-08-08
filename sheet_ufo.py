@@ -575,8 +575,8 @@ class SheetTree(object):
     
   def cutEdgeFace(self, eIdx, fIdx, theEdge, theNode):
     ''' This function cuts a face in two pieces.
-    one piece is connected to the node. The residual pieces is given
-    for assignment to other nodes.
+    one piece is connected to the node. 
+    The residual piece is discarded. 
     The function returns the piece that has a common edge with the top face of theNode.
     '''
     #print "now the face cutter: ", fIdx, ' ', eIdx, ' ', theNode.idx
@@ -595,17 +595,41 @@ class SheetTree(object):
       tan_vec = theEdge.Vertexes[eIdx].Point - theEdge.Vertexes[otherIdx].Point
       #o_thick = Base.Vector(o_vec.x, o_vec.y, o_vec.z) 
       tan_vec.normalize()
-      vec1 = Base.Vector(theNode.axis.x, theNode.axis.y, theNode.axis.z) # make a copy
+      #New approach: search for the nearest vertex at the opposite site.
+      # The cut is done between the Vertex indicated by eIdx and the nearest
+      # opposite vertex. This approach should avoid the generation of 
+      # additional short edges in the side faces.
+      searchAxis = theNode.axis
+      #else:
+        #searchAxis = radVector
+            
+      maxDistance = 1000
+      oppoPoint = None
+      print 'need to check Face', str(fIdx+1), ' with ', len(self.f_list[fIdx].Vertexes)
+      for theVert in self.f_list[fIdx].Vertexes:
+        # need to check if theVert has 
+        if self.isVertOpposite(theVert, theNode):
+          vertDist = theVert.Point.distanceToLine(origin, searchAxis)
+          if vertDist < maxDistance:
+            maxDistance = vertDist
+            oppoPoint = theVert.Point
+            
+      if oppoPoint is None:
+        print ' error need always an opposite point in a side face!'
+        # fix me: need a proper error condition.
+      
+      #vec1 = Base.Vector(theNode.axis.x, theNode.axis.y, theNode.axis.z) # make a copy
+      vec1 = (oppoPoint - origin).normalize()
 
       crossVec = tan_vec.cross(vec1)
       crossVec.multiply(3.0*self.__thickness)
 
       vec1.multiply(self.__thickness)
       # defining the points of the cutting plane:
-      Spnt1 = origin - theNode.axis - crossVec
-      Spnt2 = origin - theNode.axis + crossVec
-      Spnt3 = origin + theNode.axis +  vec1 + crossVec
-      Spnt4 = origin + theNode.axis +  vec1 - crossVec
+      Spnt1 = origin - vec1 - crossVec
+      Spnt2 = origin - vec1 + crossVec
+      Spnt3 = origin + vec1 +  vec1 + crossVec
+      Spnt4 = origin + vec1 +  vec1 - crossVec
   
       
       
@@ -627,17 +651,34 @@ class SheetTree(object):
   
       #rad_line = Part.makeLine(theEdge.Vertexes[eIdx].Point.add(radVector), theEdge.Vertexes[eIdx].Point)
       #Part.show(rad_line, 'rad_line'+ str(theNode.idx+1)+'_')
+      searchAxis = radVector
+            
+      maxDistance = 1000
+      oppoPoint = None
+      print 'need to check Face', str(fIdx+1), ' with ', len(self.f_list[fIdx].Vertexes)
+      for theVert in self.f_list[fIdx].Vertexes:
+        # need to check if theVert has 
+        if self.isVertOpposite(theVert, theNode):
+          vertDist = theVert.Point.distanceToLine(origin, searchAxis)
+          if vertDist < maxDistance:
+            maxDistance = vertDist
+            oppoPoint = theVert.Point
+            
+      if oppoPoint is None:
+        print ' error need always an opposite point in a side face!'
+        # fix me: need a proper error condition.
+      #vec1 = Base.Vector(radVector.x, radVector.y, radVector.z) # make a copy
+      vec1 = (oppoPoint - origin).normalize()
 
-      crossVec = tan_vec.cross(radVector)
+      crossVec = tan_vec.cross(vec1)
       crossVec.multiply(3.0*self.__thickness)
-      vec1 = Base.Vector(radVector.x, radVector.y, radVector.z) # make a copy
 
       vec1.multiply(self.__thickness)
       # defining the points of the cutting plane:
-      Spnt1 = origin - radVector - crossVec
-      Spnt2 = origin - radVector + crossVec
-      Spnt3 = origin + radVector +  vec1 + crossVec
-      Spnt4 = origin + radVector +  vec1 - crossVec
+      Spnt1 = origin - vec1 - crossVec
+      Spnt2 = origin - vec1 + crossVec
+      Spnt3 = origin + vec1 +  vec1 + crossVec
+      Spnt4 = origin + vec1 +  vec1 - crossVec
     
     Sedge1 = Part.makeLine(Spnt1,Spnt2)
     Sedge2 = Part.makeLine(Spnt2,Spnt3)
@@ -645,7 +686,7 @@ class SheetTree(object):
     Sedge4 = Part.makeLine(Spnt4,Spnt1)
         
     Sw1 = Part.Wire([Sedge1, Sedge2, Sedge3, Sedge4])
-    #Part.show(Sw1, 'cutWire'+ str(theNode.idx+1)+'_')
+    # Part.show(Sw1, 'cutWire'+ str(theNode.idx+1)+'_')
     Sf1=Part.Face(Sw1) #
     #Part.show(Sf1, 'cutFace'+ str(theNode.idx+1)+'_')
     #cut_solid = Sf1.extrude(tan_vec.multiply(5.0))
@@ -1562,7 +1603,7 @@ class SheetTree(object):
     for key in bend_node.edgeDict:
       keyList.append(key)
     print 'edgeDict keys: ', keyList
-    Part.show(theFace, 'unbendFace'+str(fIdx+1))
+    #Part.show(theFace, 'unbendFace'+str(fIdx+1))
     return theFace
 
   def sortEdgesTolerant(self, myEdgeList):
