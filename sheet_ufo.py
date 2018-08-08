@@ -577,7 +577,7 @@ class SheetTree(object):
     ''' This function cuts a face in two pieces.
     one piece is connected to the node. The residual pieces is given
     for assignment to other nodes.
-    The function returns both pieces of the original face.
+    The function returns the piece that has a common edge with the top face of theNode.
     '''
     #print "now the face cutter: ", fIdx, ' ', eIdx, ' ', theNode.idx
     #Part.show(theEdge, 'EdgeToCut'+ str(theNode.idx+1)+'_')
@@ -1004,7 +1004,7 @@ class SheetTree(object):
         for pVert in self.__Shape.Faces[P_node.c_face_idx].Vertexes:
           if equal_vertex(theVert, pVert):
             flagStr = flagStr + 'p'
-            origVec = P_edge.Vertexes[0].Point
+            origVec = pVert.Point
             unbendVec = origVec
         print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
         newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
@@ -1160,6 +1160,7 @@ class SheetTree(object):
     compPoints = []
     compChildPoints = []
     if mode == 'top':
+      '''
       for p in self.f_list[bend_node.p_node.idx].Vertexes:
         compPoints.append(p.Point)
       # Put the following values in compChildPoints
@@ -1170,6 +1171,7 @@ class SheetTree(object):
         cTopFace.translate(trans_vec)
         for p in cTopFace.Vertexes:
           compChildPoints.append(p.Point)
+      '''
       chord = cent.sub(bend_node.p_edge.Vertexes[0].Point)
       norm = axis.cross(chord)
       compRadialVec = axis.cross(norm)
@@ -1180,6 +1182,7 @@ class SheetTree(object):
       #  compPoints.append(p.Point)
 
     if mode == 'counter':
+      '''
       for p in self.f_list[bend_node.p_node.c_face_idx].Vertexes:
         compPoints.append(p.Point)
       # Put the following values in compChildPoints
@@ -1190,21 +1193,22 @@ class SheetTree(object):
         cCounterFace.translate(trans_vec)
         for p in cCounterFace.Vertexes:
           compChildPoints.append(p.Point)
+      '''
       chord = cent.sub(bend_node.oppositePoint)
       norm = axis.cross(chord)
       compRadialVec = axis.cross(norm)
 
-    if mode == 'side':
-      edgeSearchList = []
-      for tEdge in bend_node.unfoldTopList:
-        compPoints.append(tEdge.Vertexes[0].Point)
-        compPoints.append(tEdge.Vertexes[1].Point)
-        edgeSearchList.append(tEdge)
-      for tEdge in bend_node.unfoldCounterList:
-        compPoints.append(tEdge.Vertexes[0].Point)
-        compPoints.append(tEdge.Vertexes[1].Point)
-        edgeSearchList.append(tEdge)
-      #print 'compPoints: ', compPoints
+    #if mode == 'side':
+      #edgeSearchList = []
+      #for tEdge in bend_node.unfoldTopList:
+        #compPoints.append(tEdge.Vertexes[0].Point)
+        #compPoints.append(tEdge.Vertexes[1].Point)
+        #edgeSearchList.append(tEdge)
+      #for tEdge in bend_node.unfoldCounterList:
+        #compPoints.append(tEdge.Vertexes[0].Point)
+        #compPoints.append(tEdge.Vertexes[1].Point)
+        #edgeSearchList.append(tEdge)
+      ##print 'compPoints: ', compPoints
     
 
     def unbendPoint(poi):
@@ -1252,17 +1256,7 @@ class SheetTree(object):
     for aWire in fWireList:
         uEdge = None
         idxList, conDict, lastCon, closedW = self.sortEdgesTolerant(aWire.Edges)
-        # search for indexes to original Vertexes of the bend node
-        '''
-        # is this the right place to do this?
-        for fEdgeIdx in idxList:
-          fEdge = aWire.Edges[fEdgeIdx]
-          vIdx = 0
-          for vert in fEdge.Vertexes:
-            for oVertIdx in bend_node.vertexDict:
-              ? = 
-              if equal_vector(vert.Point, 
-        '''
+        print 'Wire', str(fIdx+1), ' has ', len(idxList), ' edges.'
           
         #cVert = Part.Vertex(lastCon)
         uLastCon = unbendPoint(lastCon)
@@ -1274,15 +1268,54 @@ class SheetTree(object):
           fEdge = aWire.Edges[fEdgeIdx]
           eType = str(fEdge.Curve)
           #print "the type of curve: ", eType
+          vert0 = None
+          vert1 = None
+          flags0 = None
+          flags1 = None
+          uVert0 = None
+          uVert1 = None
+          edgeKey = None
+          vert0Idx = None
+          vert1Idx = None
+          
+          #print 'edge vertexes: ', str(fIdx+1), ' ', mode, ' ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point
+          for oVertIdx in bend_node.vertexDict:
+            flagStr, origVec, unbendVec = bend_node.vertexDict[oVertIdx]
+            print 'origVec: ', origVec
+            if equal_vector(fEdge.Vertexes[0].Point, origVec,2):
+              vert0Idx = oVertIdx
+              flags0 = flagStr
+              uVert0 = unbendVec
+            if len(fEdge.Vertexes) > 1:
+              if equal_vector(fEdge.Vertexes[1].Point, origVec,2):
+                vert1Idx = oVertIdx
+                flags1 = flagStr
+                uVert1 = unbendVec
+            # can we break the for loop at some condition?
+          # make the key for bend_node.edgeDict, shift vert1 and add both.
+          if vert0Idx is None:
+            print 'catastrophy: ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point, ' ', eType
+            Part.show(fEdge, 'catastrophyEdge')
+          if vert1Idx:
+            if vert1Idx < vert0Idx:
+              edgeKey = vert0Idx + (vert1Idx << 8)
+            else:
+              edgeKey = vert1Idx + (vert0Idx << 8)
+            # x << n: x shifted left by n bits = Multiplication
+          else:
+            edgeKey = vert0Idx
+            
+          print 'vertex ident: ', edgeKey, ' ', str(fIdx+1), ' ', mode, ' ', uVert0, ' ', uVert1
+          
           urollPts = []
           
           if ("<Ellipse object>" in eType):
             minPar, maxPar = fEdge.ParameterRange
             FreeCAD.Console.PrintLog("the Parameterrange: "+ str(minPar)+ " to " + str(maxPar)+ " Type: "+str(eType) + "\n")
             iMulti = (maxPar-minPar)/divisions
+            '''
             oldEIdx, pIdx = conDict[fEdgeIdx]
             if pIdx == 1: pIdx = divisions
-            
             for i in range(divisions+1):
               #print "j, i: ", j," ",i," ",fEdge.valueAt(minPar + i*iMulti)
               if i == pIdx:
@@ -1295,6 +1328,14 @@ class SheetTree(object):
                 posi = fEdge.valueAt(minPar + i*iMulti)      
                 bPosi = unbendPoint(posi)
               urollPts.append(bPosi)
+            '''
+            urollPts.append(uVert0)
+            for i in range(1,divisions):
+              posi = fEdge.valueAt(minPar + i*iMulti)      
+              bPosi = unbendPoint(posi)
+              urollPts.append(bPosi)
+            urollPts.append(uVert1)
+            
             
             uCurve = Part.BSplineCurve()
             uCurve.interpolate(urollPts)
@@ -1305,6 +1346,7 @@ class SheetTree(object):
     
           elif "<Line" in eType:
             #print 'j: ',j , ' eType: ', eType, ' fIdx: ', fIdx, ' verts: ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point
+            '''
 
             oldEIdx, pIdx = conDict[fEdgeIdx]
             #for lVert in fEdge.Vertexes:
@@ -1322,6 +1364,9 @@ class SheetTree(object):
                 bPosi = unbendPoint(posi)
               urollPts.append(bPosi)
             uEdge = Part.makeLine(urollPts[0], urollPts[1])
+            '''
+            #print 'unbend Line: ', uVert0, ' ', uVert1
+            uEdge = Part.makeLine(uVert0, uVert1)
             #eList.append(uEdge)
             #Part.show(uEdge, 'Line'+str(j)+'_')
     
@@ -1332,7 +1377,7 @@ class SheetTree(object):
             #axis_line = Part.makeLine(cent, cent + axis)
             #Part.show(axis_line, 'axis_line'+ str(bend_node.idx+1)+'_')
             #print 'Face', str(bend_node.idx+1), 'bAxis: ', axis, ' cAxis: ', fEdge.Curve.Axis
-
+            '''
             oldEIdx, pIdx = conDict[fEdgeIdx]
             for vIdx in range(2):
               if vIdx == pIdx:
@@ -1351,6 +1396,8 @@ class SheetTree(object):
               # bPosi = unbendPoint(posi)
               urollPts.append(bPosi)
             uEdge = Part.makeLine(urollPts[0], urollPts[1])
+            '''
+            uEdge = Part.makeLine(uVert0, uVert1)
             #eList.append(uEdge)
             #Part.show(uEdge, 'CircleLine'+str(j)+'_')
     
@@ -1359,6 +1406,7 @@ class SheetTree(object):
             #print "the Parameterrange: ", minPar, " - ", maxPar, " Type: ",eType
             iMulti = (maxPar-minPar)/divisions
             if closedW:
+              '''
               oldEIdx, pIdx = conDict[fEdgeIdx]
               if pIdx == 1: pIdx = divisions
               
@@ -1374,11 +1422,27 @@ class SheetTree(object):
                   posi = fEdge.valueAt(minPar + i*iMulti)      
                   bPosi = unbendPoint(posi)
                 urollPts.append(bPosi)
-            else: 
+                '''
+              urollPts.append(uVert0)
+              for i in range(1,divisions):
+                posi = fEdge.valueAt(minPar + i*iMulti)      
+                bPosi = unbendPoint(posi)
+                urollPts.append(bPosi)
+              urollPts.append(uVert0)
+                
+            else:
+              '''
               for i in range(divisions+1):
                 posi = fEdge.valueAt(minPar + i*iMulti)      
                 bPosi = unbendPoint(posi)
                 urollPts.append(bPosi)
+              '''
+              urollPts.append(uVert0)
+              for i in range(1,divisions):
+                posi = fEdge.valueAt(minPar + i*iMulti)      
+                bPosi = unbendPoint(posi)
+                urollPts.append(bPosi)
+              urollPts.append(uVert1)
             #testPoly = Part.makePolygon(urollPts)
             #Part.show(testPoly, 'testPoly'+ str(fIdx+1) + '_')
             uCurve = Part.BSplineCurve()
@@ -1400,12 +1464,21 @@ class SheetTree(object):
           # in mode 'side' check, if not the top or counter edge can be used instead.
           if mode == 'side':
             #print 'need to search the unfold list'
+            '''
             for betterEdge in edgeSearchList:
               if equal_edge(uEdge, betterEdge):
                 uEdge = betterEdge
                 #print 'replaced an edge for Face', str(fIdx + 1)
                 break
+            '''
+            if edgeKey in bend_node.edgeDict:
+              uEdge = bend_node.edgeDict[edgeKey]
+              print 'found key in node.edgeDict: ', edgeKey
+          #Part.show(uEdge, 'bendEdge'+str(fIdx+1)+'_')
           eList.append(uEdge)
+          if not (edgeKey in bend_node.edgeDict):
+            bend_node.edgeDict[edgeKey] = uEdge
+            print 'added key: ', edgeKey, ' to edgeDict.'
           j += 1
         edgeLists.append(eList)
     # end of for what?
@@ -1485,7 +1558,11 @@ class SheetTree(object):
           theFace = faces[0]
           print 'got execption'
           #Part.show(theFace, 'exception')
-    
+    keyList = []
+    for key in bend_node.edgeDict:
+      keyList.append(key)
+    print 'edgeDict keys: ', keyList
+    Part.show(theFace, 'unbendFace'+str(fIdx+1))
     return theFace
 
   def sortEdgesTolerant(self, myEdgeList):
@@ -1519,7 +1596,7 @@ class SheetTree(object):
     else:
       vert = myEdgeList[eIndex].Vertexes[0]
       vIdx = 0
-      
+    #Part.show(myEdgeList[0], 'tolEdge'+str(1)+'_')
     while not gotConnection:
       for eIdx in idxList:
         edge = myEdgeList[eIdx]
@@ -1550,7 +1627,8 @@ class SheetTree(object):
         conDict[0] = vIdx, 0
         gotConnection = True
         closedWire = True
-        
+      #Part.show(myEdgeList[eIdx], 'tolEdge'+str(eIdx+1)+'_')
+    #print 'tolerant wire: ', len(myEdgeList)
     return newIdxList, conDict, vert.Point, closedWire
     
 
@@ -1656,6 +1734,10 @@ class SheetTree(object):
         else:
           unbendVec = unbendDictPoint(origVec, oppCompRadialVec)
         bend_node.vertexDict[i] = flagStr, origVec, unbendVec
+        
+    for i in bend_node.vertexDict:
+      flagStr, origVec, unbendVec = bend_node.vertexDict[i]
+      print 'vDict Face', str(bend_node.idx+1), ' ', i, ' ', flagStr, ' ', origVec, ' ', unbendVec
           
   def generateBendShell2(self, bend_node):
     '''
