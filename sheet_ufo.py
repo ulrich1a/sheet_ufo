@@ -1387,6 +1387,7 @@ class SheetTree(object):
     
           elif "<Line" in eType:
             #print 'j: ',j , ' eType: ', eType, ' fIdx: ', fIdx, ' verts: ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point
+            #Part.show(fEdge)
             '''
 
             oldEIdx, pIdx = conDict[fEdgeIdx]
@@ -1469,7 +1470,7 @@ class SheetTree(object):
                 posi = fEdge.valueAt(minPar + i*iMulti)      
                 bPosi = unbendPoint(posi)
                 urollPts.append(bPosi)
-              urollPts.append(uVert0)
+              urollPts.append(uVert1)
                 
             else:
               '''
@@ -1483,7 +1484,7 @@ class SheetTree(object):
                 posi = fEdge.valueAt(minPar + i*iMulti)      
                 bPosi = unbendPoint(posi)
                 urollPts.append(bPosi)
-              urollPts.append(uVert1)
+              urollPts.append(uVert0)
             #testPoly = Part.makePolygon(urollPts)
             #Part.show(testPoly, 'testPoly'+ str(fIdx+1) + '_')
             uCurve = Part.BSplineCurve()
