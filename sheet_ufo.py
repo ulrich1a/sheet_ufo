@@ -918,9 +918,24 @@ class SheetTree(object):
             #print 'compare angles, bend: ', newNode.p_node.bend_angle, ' ', angle
             newNode.p_node.bend_angle = angle # This seems to be an improvement!
             # newNode.p_node.bend_angle = (angle + newNode.p_node.bend_angle) / 2.0 # this is a bad approach
-        
+          
+          # update the newNode.p_node.vertexDict with the Vertex data
+          # from the own vertexes corresponding to the parent edge: P_edge
+          myFlatVerts = []
+          for theVert in self.__Shape.Faces[face_idx].Vertexes:
+            if equal_vertex(theVert, P_edge.Vertexes[0]):
+              myFlatVerts.append(theVert)
+            if equal_vertex(theVert, P_edge.Vertexes[1]):
+              myFlatVerts.append(theVert)
 
-            
+          for vKey in newNode.p_node.vertexDict:
+            flagStr, origVec, unbendVec = newNode.p_node.vertexDict[vKey]
+            for theVert in myFlatVerts:
+              if equal_vector(theVert.Point, origVec):
+                flagStr = flagStr + 'c'
+                newNode.p_node.vertexDict[vKey] = flagStr, theVert.Point, unbendVec
+
+
     if F_type == "<Cylinder object>":
       newNode.node_type = 'Bend' # fixme
       s_Center = self.__Shape.Faces[face_idx].Surface.Center
@@ -1333,10 +1348,30 @@ class SheetTree(object):
                 flags1 = flagStr
                 uVert1 = unbendVec
             # can we break the for loop at some condition?
+          # Handle cases, where a side face has additional vertexes
+          if mode == 'side':
+            if vert0Idx is None:
+              vert0Idx = len(bend_node.vertexDict)
+              print 'got additional side vertex0: ', vert0Idx, ' ', fEdge.Vertexes[0].Point
+              flags0 = ''
+              origVec = fEdge.Vertexes[0].Point
+              uVert0 = unbendPoint(origVec)
+              bend_node.vertexDict[vert0Idx] = flags0, origVec, uVert0
+            if len(fEdge.Vertexes) >1:
+              if vert1Idx is None:
+                vert1Idx = len(bend_node.vertexDict)
+                print 'got additional side vertex1: ', vert1Idx, ' ', fEdge.Vertexes[1].Point
+                flags1 = ''
+                origVec = fEdge.Vertexes[1].Point
+                uVert1 = unbendPoint(origVec)
+                bend_node.vertexDict[vert1Idx] = flags1, origVec, uVert1
+
+
           # make the key for bend_node.edgeDict, shift vert1 and add both.
           if vert0Idx is None:
-            print 'catastrophy: ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point, ' ', eType
+            #print 'catastrophy: ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point, ' ', eType
             Part.show(fEdge, 'catastrophyEdge')
+            # fix me, need proper failure mode.
           if vert1Idx:
             if vert1Idx < vert0Idx:
               edgeKey = vert0Idx + (vert1Idx << 8)
@@ -1749,11 +1784,14 @@ class SheetTree(object):
         angle = angle + 2*math.pi
       rotVec = self.rotateVec(poi.sub(cent), -angle, axis)
       #print 'point if Face', str(fIdx+1), ' ', angle, ' ', transRad*angle
-      chord = cent.sub(cent + rotVec)
-      norm = axis.cross(chord)
-      correctionVec = compRadialVec.sub(axis.cross(norm))
-      #print 'origVec ', axis.cross(norm), ' compRadialVec ', compRadialVec
-      bPoint = cent + rotVec + correctionVec + tanVec*transRad*angle
+      if 'c' in flagStr:
+        bPoint = cent + rotVec + tanVec*transRad*angle
+      else:
+        chord = cent.sub(cent + rotVec)
+        norm = axis.cross(chord)
+        correctionVec = compRadialVec.sub(axis.cross(norm))
+        #print 'origVec ', axis.cross(norm), ' compRadialVec ', compRadialVec
+        bPoint = cent + rotVec + correctionVec + tanVec*transRad*angle
       return bPoint
 
     thick = self.__thickness
