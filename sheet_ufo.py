@@ -1372,13 +1372,13 @@ class SheetTree(object):
           #print 'edge vertexes: ', str(fIdx+1), ' ', mode, ' ', fEdge.Vertexes[0].Point, ' ', fEdge.Vertexes[1].Point
           for oVertIdx in bend_node.vertexDict:
             flagStr, origVec, unbendVec = bend_node.vertexDict[oVertIdx]
-            print 'origVec: ', origVec
-            if equal_vector(fEdge.Vertexes[0].Point, origVec,2):
+            #print 'origVec: ', origVec
+            if equal_vector(fEdge.Vertexes[0].Point, origVec,5):
               vert0Idx = oVertIdx
               flags0 = flagStr
               uVert0 = unbendVec
             if len(fEdge.Vertexes) > 1:
-              if equal_vector(fEdge.Vertexes[1].Point, origVec,2):
+              if equal_vector(fEdge.Vertexes[1].Point, origVec,5):
                 vert1Idx = oVertIdx
                 flags1 = flagStr
                 uVert1 = unbendVec
@@ -1416,7 +1416,7 @@ class SheetTree(object):
           else:
             edgeKey = vert0Idx
             
-          print 'vertex ident: ', edgeKey, ' ', str(fIdx+1), ' ', mode, ' ', uVert0, ' ', uVert1
+          #print 'edgeKey: ', edgeKey, ' ', str(fIdx+1), ' ', mode, ' ', uVert0, ' ', uVert1
           
           urollPts = []
           
@@ -1585,12 +1585,12 @@ class SheetTree(object):
             '''
             if edgeKey in bend_node.edgeDict:
               uEdge = bend_node.edgeDict[edgeKey]
-              print 'found key in node.edgeDict: ', edgeKey
+              #print 'found key in node.edgeDict: ', edgeKey, ' in mode: ', mode
           #Part.show(uEdge, 'bendEdge'+str(fIdx+1)+'_')
           eList.append(uEdge)
           if not (edgeKey in bend_node.edgeDict):
             bend_node.edgeDict[edgeKey] = uEdge
-            print 'added key: ', edgeKey, ' to edgeDict.'
+            #print 'added key: ', edgeKey, ' to edgeDict in mode: ', mode
           j += 1
         edgeLists.append(eList)
     # end of for what?
@@ -1843,16 +1843,17 @@ class SheetTree(object):
       
     for i in bend_node.vertexDict:
       flagStr, origVec, unbendVec = bend_node.vertexDict[i]
-      if (not ('p' in flagStr)) or (not ('c' in flagStr)):
+      if (not ('p' in flagStr)) and (not ('c' in flagStr)):
         if 't' in flagStr:
           unbendVec = unbendDictPoint(origVec, topCompRadialVec)
         else:
           unbendVec = unbendDictPoint(origVec, oppCompRadialVec)
+        #print 'unbendDictPoint for ', flagStr
         bend_node.vertexDict[i] = flagStr, origVec, unbendVec
         
-    for i in bend_node.vertexDict:
-      flagStr, origVec, unbendVec = bend_node.vertexDict[i]
-      print 'vDict Face', str(bend_node.idx+1), ' ', i, ' ', flagStr, ' ', origVec, ' ', unbendVec
+    #for i in bend_node.vertexDict:
+      #flagStr, origVec, unbendVec = bend_node.vertexDict[i]
+      #print 'vDict Face', str(bend_node.idx+1), ' ', i, ' ', flagStr, ' ', origVec, ' ', unbendVec
           
   def generateBendShell2(self, bend_node):
     '''
