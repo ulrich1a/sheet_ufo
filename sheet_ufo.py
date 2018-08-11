@@ -921,19 +921,54 @@ class SheetTree(object):
           
           # update the newNode.p_node.vertexDict with the Vertex data
           # from the own vertexes corresponding to the parent edge: P_edge
-          myFlatVerts = []
-          for theVert in self.__Shape.Faces[face_idx].Vertexes:
+          topVertIndexes = range(len(self.__Shape.Faces[face_idx].Vertexes))
+          myFlatVertIndexes = []
+          # for theVert in self.__Shape.Faces[face_idx].Vertexes:
+          for vertIdx in topVertIndexes:
+            theVert = self.__Shape.Faces[face_idx].Vertexes[vertIdx]
             if equal_vertex(theVert, P_edge.Vertexes[0]):
-              myFlatVerts.append(theVert)
+              myFlatVertIndexes.append(vertIdx)
             if equal_vertex(theVert, P_edge.Vertexes[1]):
-              myFlatVerts.append(theVert)
+              myFlatVertIndexes.append(vertIdx)
+              
+          rotatedFace = self.f_list[face_idx].copy()
+          trans_vec = newNode.p_node.tan_vec * newNode.p_node._trans_length
+          rotatedFace.rotate(self.f_list[newNode.p_node.idx].Surface.Center,newNode.p_node.axis,math.degrees(-newNode.p_node.bend_angle))
+          rotatedFace.translate(trans_vec)
 
           for vKey in newNode.p_node.vertexDict:
             flagStr, origVec, unbendVec = newNode.p_node.vertexDict[vKey]
-            for theVert in myFlatVerts:
+            #for theVert in myFlatVerts:
+            for vertIdx in myFlatVertIndexes:
+              theVert = self.__Shape.Faces[face_idx].Vertexes[vertIdx]
               if equal_vector(theVert.Point, origVec):
                 flagStr = flagStr + 'c'
-                newNode.p_node.vertexDict[vKey] = flagStr, theVert.Point, unbendVec
+                newNode.p_node.vertexDict[vKey] = flagStr, origVec, rotatedFace.Vertexes[vertIdx].Point
+
+          # update the newNode.p_node.vertexDict with the Vertex data
+          # from the own vertexes corresponding to the opposite face
+          oppVertIndexes = range(len(self.__Shape.Faces[newNode.c_face_idx].Vertexes))
+          myFlatVertIndexes = []
+          # for theVert in self.__Shape.Faces[face_idx].Vertexes:
+          for vertIdx in oppVertIndexes:
+            theVert = self.__Shape.Faces[newNode.c_face_idx].Vertexes[vertIdx]
+            for cVert in self.__Shape.Faces[newNode.p_node.c_face_idx].Vertexes:
+              if equal_vertex(theVert, cVert):
+                myFlatVertIndexes.append(vertIdx)
+              
+          rotatedFace = self.f_list[newNode.c_face_idx].copy()
+          trans_vec = newNode.p_node.tan_vec * newNode.p_node._trans_length
+          rotatedFace.rotate(self.f_list[newNode.p_node.idx].Surface.Center,newNode.p_node.axis,math.degrees(-newNode.p_node.bend_angle))
+          rotatedFace.translate(trans_vec)
+
+          for vKey in newNode.p_node.vertexDict:
+            flagStr, origVec, unbendVec = newNode.p_node.vertexDict[vKey]
+            #for theVert in myFlatVerts:
+            for vertIdx in myFlatVertIndexes:
+              theVert = self.__Shape.Faces[newNode.c_face_idx].Vertexes[vertIdx]
+              if equal_vector(theVert.Point, origVec):
+                flagStr = flagStr + 'c'
+                newNode.p_node.vertexDict[vKey] = flagStr, origVec, rotatedFace.Vertexes[vertIdx].Point
 
 
     if F_type == "<Cylinder object>":
@@ -1591,7 +1626,7 @@ class SheetTree(object):
             #for w in eList:
               #Part.show(w, 'exceptEdge')
               #print 'exception type: ', str(w.Curve)
-            Part.show(myWire, 'exceptionWire'+ str(fIdx+1)+'_')
+            #Part.show(myWire, 'exceptionWire'+ str(fIdx+1)+'_')
             secWireList = myWire.Edges[:]
             thirdWireList = Part.__sortEdges__(secWireList)
             theFace = Part.makeFilledFace(thirdWireList)
@@ -1808,7 +1843,7 @@ class SheetTree(object):
       
     for i in bend_node.vertexDict:
       flagStr, origVec, unbendVec = bend_node.vertexDict[i]
-      if not ('p' in flagStr):
+      if (not ('p' in flagStr)) or (not ('c' in flagStr)):
         if 't' in flagStr:
           unbendVec = unbendDictPoint(origVec, topCompRadialVec)
         else:
