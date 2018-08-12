@@ -1026,80 +1026,90 @@ class SheetTree(object):
           # Part.show(self.__Shape.Faces[newNode.c_face_idx])
           break
 
+      if not counter_found:
+        newNode.analysis_ok = False
+        newNode.error_code = 13 # Analysis: counter face not found
+        self.error_code = 13
+        self.failed_face_idx = face_idx
+        FreeCAD.Console.PrintLog("No opposite face Debugging Thickness: "+ str(self.__thickness) + "\n")
+        Part.show(self.__Shape.Faces[face_idx], 'FailedFace'+ str(face_idx + 1) +'_')
+        return newNode
 
-      # Need a Vertex from the parent node on the opposite side of the 
-      # sheet metal part. This vertex is used to align other vertexes
-      # to the unbended sheet metal plane.
-      # The used vertex should be one of the opposite Face of the parent
-      # node with the closest distance to a line through edge_vec.
-      if P_node.node_type == 'Flat':
-        searchAxis = P_node.axis
+        
       else:
-        searchAxis = radVector
-            
-      maxDistance = 1000
-      bestPoint = None
-      for theVert in self.__Shape.Faces[P_node.c_face_idx].Vertexes:
-        vertDist = theVert.Point.distanceToLine(edge_vec, searchAxis)
-        if vertDist < maxDistance:
-          maxDistance = vertDist
-          bestPoint = theVert.Point
-           
-      newNode.oppositePoint = bestPoint
-      #Part.show(Part.makeLine(bestPoint, edge_vec), 'bestPoint'+str(face_idx+1)+'_')
-      
-      self.getBendAngle(newNode, wires_e_lists)
-            
-       # As I have learned, that it is necessary to apply corrections to Points / Vertexes,
-      # it will be difficult to have all vertexes of the faces of a bend to fit together.
-      # Therefore a dictionary is introduced, which holds the original coordinates and
-      # the unbend coordinates for the vertexes of the bend. It contains also flags,
-      # indicating if a point is part of the parent node (p) or child node (c), top face (t) or
-      # opposite face (o). All in newNode.vertexDict
-      # Structure: key: Flagstring, Base.Vector(original), Base.Vector(unbend)
-      # The unbend coordinates should be added before processing the top face and the
-      # opposite face in the generateBendShell2 procedure.
-      # Next is to identify for each vertex in the edges the corresponding vertex in 
-      # newNode.vertexDict. 
-      # Create a dictionary for the unbend edges. The key is a combination of the
-      # vertex indexes. The higher index is shifted 16 bits. simple_node.edgeDict
-      # Next is to unbend the edges, using the points in newNode.vertexDict as
-      # starting and ending vertex.
-      # Store the edge in self.edgeDict and process it to make a wire and a face.
-      #
-      # The side faces uses only the unbend vertexes from newNode.vertexDict,
-      # the edges from self.edgeDict are recycled.
-      # Only new to generate edges may need other vertexes too.
-      vertDictIdx = 0 # Index as key in newNode.vertexDict
-      for theVert in self.__Shape.Faces[face_idx].Vertexes:
-        flagStr = 't'
-        origVec = theVert.Point
-        unbendVec = None
-        if equal_vertex(theVert, P_edge.Vertexes[0]):
-          flagStr = flagStr + 'p0'
-          origVec = P_edge.Vertexes[0].Point
-          unbendVec = origVec
+        # Need a Vertex from the parent node on the opposite side of the 
+        # sheet metal part. This vertex is used to align other vertexes
+        # to the unbended sheet metal plane.
+        # The used vertex should be one of the opposite Face of the parent
+        # node with the closest distance to a line through edge_vec.
+        if P_node.node_type == 'Flat':
+          searchAxis = P_node.axis
         else:
-          if equal_vertex(theVert, P_edge.Vertexes[1]):
-            flagStr = flagStr + 'p1'
-            origVec = P_edge.Vertexes[1].Point
+          searchAxis = radVector
+              
+        maxDistance = 1000
+        bestPoint = None
+        for theVert in self.__Shape.Faces[P_node.c_face_idx].Vertexes:
+          vertDist = theVert.Point.distanceToLine(edge_vec, searchAxis)
+          if vertDist < maxDistance:
+            maxDistance = vertDist
+            bestPoint = theVert.Point
+             
+        newNode.oppositePoint = bestPoint
+        #Part.show(Part.makeLine(bestPoint, edge_vec), 'bestPoint'+str(face_idx+1)+'_')
+        
+        self.getBendAngle(newNode, wires_e_lists)
+              
+         # As I have learned, that it is necessary to apply corrections to Points / Vertexes,
+        # it will be difficult to have all vertexes of the faces of a bend to fit together.
+        # Therefore a dictionary is introduced, which holds the original coordinates and
+        # the unbend coordinates for the vertexes of the bend. It contains also flags,
+        # indicating if a point is part of the parent node (p) or child node (c), top face (t) or
+        # opposite face (o). All in newNode.vertexDict
+        # Structure: key: Flagstring, Base.Vector(original), Base.Vector(unbend)
+        # The unbend coordinates should be added before processing the top face and the
+        # opposite face in the generateBendShell2 procedure.
+        # Next is to identify for each vertex in the edges the corresponding vertex in 
+        # newNode.vertexDict. 
+        # Create a dictionary for the unbend edges. The key is a combination of the
+        # vertex indexes. The higher index is shifted 16 bits. simple_node.edgeDict
+        # Next is to unbend the edges, using the points in newNode.vertexDict as
+        # starting and ending vertex.
+        # Store the edge in self.edgeDict and process it to make a wire and a face.
+        #
+        # The side faces uses only the unbend vertexes from newNode.vertexDict,
+        # the edges from self.edgeDict are recycled.
+        # Only new to generate edges may need other vertexes too.
+        vertDictIdx = 0 # Index as key in newNode.vertexDict
+        for theVert in self.__Shape.Faces[face_idx].Vertexes:
+          flagStr = 't'
+          origVec = theVert.Point
+          unbendVec = None
+          if equal_vertex(theVert, P_edge.Vertexes[0]):
+            flagStr = flagStr + 'p0'
+            origVec = P_edge.Vertexes[0].Point
             unbendVec = origVec
-        print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
-        newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
-        vertDictIdx += 1
-
-      for theVert in self.__Shape.Faces[newNode.c_face_idx].Vertexes:
-        flagStr = 'o'
-        origVec = theVert.Point
-        unbendVec = None
-        for pVert in self.__Shape.Faces[P_node.c_face_idx].Vertexes:
-          if equal_vertex(theVert, pVert):
-            flagStr = flagStr + 'p'
-            origVec = pVert.Point
-            unbendVec = origVec
-        print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
-        newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
-        vertDictIdx += 1
+          else:
+            if equal_vertex(theVert, P_edge.Vertexes[1]):
+              flagStr = flagStr + 'p1'
+              origVec = P_edge.Vertexes[1].Point
+              unbendVec = origVec
+          print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
+          newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
+          vertDictIdx += 1
+  
+        for theVert in self.__Shape.Faces[newNode.c_face_idx].Vertexes:
+          flagStr = 'o'
+          origVec = theVert.Point
+          unbendVec = None
+          for pVert in self.__Shape.Faces[P_node.c_face_idx].Vertexes:
+            if equal_vertex(theVert, pVert):
+              flagStr = flagStr + 'p'
+              origVec = pVert.Point
+              unbendVec = origVec
+          print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
+          newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
+          vertDictIdx += 1
       
     # Part.show(self.__Shape.Faces[newNode.c_face_idx])
     # Part.show(self.__Shape.Faces[newNode.idx])
