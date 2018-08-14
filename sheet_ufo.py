@@ -1186,16 +1186,10 @@ class SheetTree(object):
           FreeCAD.Console.PrintLog("counterface on otherSeamNode: Face" + str(otherSeamNode.c_face_idx+1) + "\n")
           # do not make Faces at a detected seam!
           # self.makeSeamFace(child_info[1], otherSeamNode)
-          #t_node.analysis_ok = False # the code can not handle? edges without neighbor faces
-          #t_node.error_code = 14 # Analysis: the code can not handle? edges without neighbor faces
-          #self.error_code = 14
-          #self.failed_face_idx = t_node.idx
-          #break
       for seams in removalList:
         t_node.child_idx_lists.remove(seams)
     else:
       FreeCAD.Console.PrintError('got error code: '+ str(self.error_code) + ' at Face'+ str(self.failed_face_idx+1) + "\n")
-      #Part.show(self.__Shape.Faces[self.failed_face_idx], 'FailedFace')
       
 
   
@@ -1372,10 +1366,32 @@ class SheetTree(object):
           if ("<Ellipse object>" in eType):
             minPar, maxPar = fEdge.ParameterRange
             FreeCAD.Console.PrintLog("the Parameterrange: "+ str(minPar)+ " to " + str(maxPar)+ " Type: "+str(eType) + "\n")
-            iMulti = (maxPar-minPar)/divisions
+            
+            # compare minimal 1/curvature with curve-lenght to decide on division
+            iMulti = (maxPar-minPar)/24
+            maxCurva = 0.0
+            for i in range(24):
+              posi = testEdge.valueAt(minPar + i*iMulti)
+              # print 'testEdge ', i, ' curva: ' , testEdge.Curve.curvature(minPar + i*iMulti)
+              curva = testEdge.Curve.curvature(minPar + i*iMulti)
+              if curva > maxCurva:
+                maxCurva = curva
+            
+            decisionAngle = testEdge.Length * maxCurva
+            # print 'Face', str(fIdx+1), ' EllidecisionAngle: ', decisionAngle
+            # Part.show(fEdge, 'EllideciAng'+str(decisionAngle)+ '_')
+            
+            if decisionAngle < 0.1:
+              eDivisions = 4
+            elif decisionAngle < 0.5:
+              eDivisions = 6
+            else:
+              eDivisions = 12
+            
+            iMulti = (maxPar-minPar)/eDivisions
             urollPts.append(uVert0)
-            for i in range(1,divisions):
-              posi = fEdge.valueAt(minPar + i*iMulti)      
+            for i in range(1,eDivisions):
+              posi = fEdge.valueAt(minPar + i*iMulti)
               bPosi = unbendPoint(posi)
               urollPts.append(bPosi)
             urollPts.append(uVert1)
@@ -1405,18 +1421,49 @@ class SheetTree(object):
           elif ("<BSplineCurve object>" in eType) or ("<BezierCurve object>" in eType):
             minPar, maxPar = fEdge.ParameterRange
             #print "the Parameterrange: ", minPar, " - ", maxPar, " Type: ",eType
-            iMulti = (maxPar-minPar)/divisions
+            
+            # compare minimal 1/curvature with curve-lenght to decide on division
+            iMulti = (maxPar-minPar)/24
+            maxCurva = 0.0
+            testPts = []
+            for i in range(24+1):
+              posi = fEdge.valueAt(minPar + i*iMulti)
+              bPosi = unbendPoint(posi)
+              testPts.append(bPosi)
+            testCurve = Part.BSplineCurve()
+            testCurve.interpolate(testPts)
+            testEdge = testCurve.toShape()
+
+            for i in range(24+1):
+              posi = testEdge.valueAt(minPar + i*iMulti)
+              # print 'testEdge ', i, ' curva: ' , testEdge.Curve.curvature(minPar + i*iMulti)
+              curva = testEdge.Curve.curvature(minPar + i*iMulti)
+              if curva > maxCurva:
+                maxCurva = curva
+            
+            decisionAngle = testEdge.Length * maxCurva
+            #print 'Face', str(fIdx+1), ' decisionAngle: ', decisionAngle
+            #Part.show(testEdge, 'deciAng'+str(decisionAngle)+ '_')
+            
+            if decisionAngle > 1000.0:
+              bDivisions = 4
+            else:
+              bDivisions = 12
+
+            iMulti = (maxPar-minPar)/bDivisions
             if vertexCount > 1:
               urollPts.append(uVert0)
-              for i in range(1,divisions):
-                posi = fEdge.valueAt(minPar + i*iMulti)      
+              for i in range(1,bDivisions):
+                posi = fEdge.valueAt(minPar + i*iMulti)
+                # curvature is 1/radius
+                #print 'Face', str(fIdx+1), ' 1/Curvature: ', 1/fEdge.Curve.curvature(minPar + i*iMulti), ' ', fEdge.Length
                 bPosi = unbendPoint(posi)
                 urollPts.append(bPosi)
               urollPts.append(uVert1)
             else:
               urollPts.append(uVert0)
-              for i in range(1,divisions):
-                posi = fEdge.valueAt(minPar + i*iMulti)      
+              for i in range(1,bDivisions):
+                posi = fEdge.valueAt(minPar + i*iMulti)
                 bPosi = unbendPoint(posi)
                 urollPts.append(bPosi)
               urollPts.append(uVert0)
@@ -1429,7 +1476,10 @@ class SheetTree(object):
               #Part.show(theCurve, 'B_spline')
             except:
               #uEdge =  Part.makeLine(urollPts[0], urollPts[-1])
-              uCurve.interpolate([urollPts[0],urollPts[3],urollPts[6],urollPts[9], urollPts[-1]])
+              if bDivisions == 4:
+                uCurve.interpolate([urollPts[0], urollPts[2], urollPts[-1]])
+              if bDivisions == 12:
+                uCurve.interpolate([urollPts[0],urollPts[3],urollPts[6],urollPts[9], urollPts[-1]])
               uEdge = uCurve.toShape()
           else:
             #print 'unbendFace, curve type not handled: ' + str(eType) + ' in Face' + str(fIdx+1)
