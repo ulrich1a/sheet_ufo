@@ -311,23 +311,34 @@ class SheetTree(object):
         mvec = m_vec.multiply(1.0/len(self.__Shape.Faces[f_idx].Vertexes))
         FreeCAD.Console.PrintLog("mvec: " + str(mvec) + "\n")
         
-        if hasattr(self.__Shape.Faces[f_idx].Surface,'Position'):
-          s_Posi = self.__Shape.Faces[f_idx].Surface.Position
-          k = 0
+        #if hasattr(self.__Shape.Faces[f_idx].Surface,'Position'):
+          #s_Posi = self.__Shape.Faces[f_idx].Surface.Position
+          #k = 0
           # while k < len(self.__Shape.Faces[f_idx].Vertexes):
           # fixme: what if measurepoint is outside?
-          pvert = self.__Shape.Faces[f_idx].Vertexes[k]
-          pvec = Base.Vector(pvert.X, pvert.Y, pvert.Z)
-          shiftvec =  mvec.sub(pvec)
-          shiftvec = shiftvec.normalize()*2.0*estimated_thickness
-          measure_pos = pvec.add(shiftvec)
-          # Description: Checks if a point is inside a solid with a certain tolerance.
-          # If the 3rd parameter is True a point on a face is considered as inside
-
-          if not self.__Shape.isInside(measure_pos, 0.00001, True):
-            FreeCAD.Console.PrintLog("Starting measure_pos for thickness measurement is outside!\n")
-            self.error_code = 2
-            self.failed_face_idx = f_idx
+          
+        if self.__Shape.isInside(mvec, 0.00001, True):
+          measure_pos = mvec
+          gotValidMeasurePosition = True
+        else:
+          gotValidMeasurePosition = False
+          for pvert in self.__Shape.Faces[f_idx].OuterWire.Vertexes:
+            #pvert = self.__Shape.Faces[f_idx].Vertexes[k]
+            pvec = Base.Vector(pvert.X, pvert.Y, pvert.Z)
+            shiftvec =  mvec.sub(pvec)
+            shiftvec = shiftvec.normalize()*2.0*estimated_thickness
+            measure_pos = pvec.add(shiftvec)
+            if self.__Shape.isInside(measure_pos, 0.00001, True):
+              gotValidMeasurePosition = True
+              break
+          
+        # Description: Checks if a point is inside a solid with a certain tolerance.
+        # If the 3rd parameter is True a point on a face is considered as inside
+        #if not self.__Shape.isInside(measure_pos, 0.00001, True):
+        if not gotValidMeasurePosition:
+          FreeCAD.Console.PrintLog("Starting measure_pos for thickness measurement is outside!\n")
+          self.error_code = 2
+          self.failed_face_idx = f_idx
 
         
         if hasattr(self.__Shape.Faces[f_idx].Surface,'Axis'):
@@ -1371,13 +1382,13 @@ class SheetTree(object):
             iMulti = (maxPar-minPar)/24
             maxCurva = 0.0
             for i in range(24):
-              posi = testEdge.valueAt(minPar + i*iMulti)
+              posi = fEdge.valueAt(minPar + i*iMulti)
               # print 'testEdge ', i, ' curva: ' , testEdge.Curve.curvature(minPar + i*iMulti)
-              curva = testEdge.Curve.curvature(minPar + i*iMulti)
+              curva = fEdge.Curve.curvature(minPar + i*iMulti)
               if curva > maxCurva:
                 maxCurva = curva
             
-            decisionAngle = testEdge.Length * maxCurva
+            decisionAngle = fEdge.Length * maxCurva
             # print 'Face', str(fIdx+1), ' EllidecisionAngle: ', decisionAngle
             # Part.show(fEdge, 'EllideciAng'+str(decisionAngle)+ '_')
             
