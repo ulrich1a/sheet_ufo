@@ -133,6 +133,7 @@ unfold_error = {
   24: ('Unfold: bend-face without child not implemented'),
   25: ('Unfold: '),
   26: ('Unfold: not handled curve type in unbendFace'),
+  27: ('Unfold: could not sort wire'),
   -1: ('unknown error')} 
 
 
@@ -1303,7 +1304,7 @@ class SheetTree(object):
 
     for aWire in fWireList:
         uEdge = None
-        idxList, closedW = self.sortEdgesTolerant(aWire.Edges)
+        idxList, closedW = self.sortEdgesTolerant(aWire.Edges, fIdx)
         print 'Wire', str(fIdx+1), ' has ', len(idxList), ' edges, closed: ', closedW
         
         eList = []  # is the list of unbend edges
@@ -1594,7 +1595,7 @@ class SheetTree(object):
     #Part.show(theFace, 'unbendFace'+str(fIdx+1))
     return theFace
 
-  def sortEdgesTolerant(self, myEdgeList):
+  def sortEdgesTolerant(self, myEdgeList, fIdx = None):
     '''
     sort edges from an existing wire.
     returns:
@@ -1617,6 +1618,7 @@ class SheetTree(object):
       vert = myEdgeList[eIndex].Vertexes[0]
     #Part.show(myEdgeList[0], 'tolEdge'+str(1)+'_')
     while not gotConnection:
+      foundConnection = False
       for eIdx in idxList:
         edge = myEdgeList[eIdx]
         if equal_vertex(vert, edge.Vertexes[0]):
@@ -1637,6 +1639,11 @@ class SheetTree(object):
             break
       if (len(idxList) == 0):
         gotConnection = True 
+      else:
+        if not foundConnection:
+          gotConnection = True
+          self.error_code = 27  # Unfold: could not sort Wire
+          self.failed_face_idx = fIdx
       if equal_vertex(vert, startVert):
         #print 'got last connection'
         gotConnection = True
