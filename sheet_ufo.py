@@ -232,6 +232,9 @@ class Simple_node(object):
     self.p_wire = None # wire common with parent node, used for bend node
     self.c_wire = None # wire common with child node, used for bend node
     self.b_edges = [] # list of edges in a bend node, that needs to be recalculated, at unfolding
+    self.foldVertex1 = None # points to attach a text to a bend in a drawing
+    self.foldVertex2 = None # point to attach a text to a bend in a drawing
+    self.bendNumber = None # Number assigned to a bend, used in tables and drawings
 
   def get_Face_idx(self):
     # get the face index from the tree-element
@@ -249,6 +252,7 @@ class SheetTree(object):
     self.__Shape = TheShape.copy()
     self.error_code = None
     self.failed_face_idx = None
+    self.bendCounter = 0 # Counter to give a bend a number, stored in bendNumber in the tree structure
     
     if not self.__Shape.isValid():
       FreeCAD.Console.PrintLog("The shape is not valid!" + "\n")
@@ -985,6 +989,8 @@ class SheetTree(object):
 
     if F_type == "<Cylinder object>":
       newNode.node_type = 'Bend' # fixme
+      self.bendCounter += 1
+      newNode.bendNumber = self.bendCounter # Assign a number to the bend
       s_Center = self.__Shape.Faces[face_idx].Surface.Center
       s_Axis = self.__Shape.Faces[face_idx].Surface.Axis
       newNode.axis = s_Axis
@@ -1628,6 +1634,7 @@ class SheetTree(object):
           newIdxList.append(eIdx)
           if len(edge.Vertexes) > 1:
             vert = edge.Vertexes[1]
+          foundConnection = True
           break
         if len(edge.Vertexes) > 1:
           if equal_vertex(vert, edge.Vertexes[1]):
@@ -1636,6 +1643,7 @@ class SheetTree(object):
             #print 'found eIdx: ', eIdx
             newIdxList.append(eIdx)
             vert = edge.Vertexes[0]
+            foundConnection = True
             break
       if (len(idxList) == 0):
         gotConnection = True 
@@ -1714,6 +1722,9 @@ class SheetTree(object):
       else:
         print 'fix me! make errorcondition'
         
+    bend_node.foldVertex1 = wireList[0].Vertexes[0]
+    bend_node.foldVertex2 = wireList[-1].Vertexes[1]
+    
     return wireList
   
   def unbendVertDict(self, bend_node, cent, axis, nullVec):
@@ -1900,11 +1911,14 @@ class SheetTree(object):
     nodeShell = []
     theFoldLines = []
     nodeFoldLines = []
+    drawingVerts = [] # Vertexes to assign bendnumbers in a drawing
+    nodeVerts = []    # new vertexes from this node
     for n_node in node.child_list:
       if self.error_code == None:
-        shell, foldLines = self.unfold_tree2(n_node)
+        shell, foldLines, verts = self.unfold_tree2(n_node)
         theShell = theShell + shell
         theFoldLines = theFoldLines + foldLines
+        drawingVerts = drawingVerts + verts
     if node.node_type == 'Bend':
       trans_vec = node.tan_vec * node._trans_length
       for bFaces in theShell:
@@ -1913,9 +1927,14 @@ class SheetTree(object):
       for fold in theFoldLines:
         fold.rotate(self.f_list[node.idx].Surface.Center,node.axis,math.degrees(-node.bend_angle))
         fold.translate(trans_vec)
+      for dVert in drawingVerts:
+        dVert.rotate(self.f_list[node.idx].Surface.Center,node.axis,math.degrees(-node.bend_angle))
+        dVert.translate(trans_vec)
       if self.error_code == None:
         #nodeShell = self.generateBendShell(node)
         nodeShell, nodeFoldLines = self.generateBendShell2(node)
+        nodeVerts.append(node.foldVertex1)
+        nodeVerts.append(node.foldVertex2)
     else:
       if self.error_code == None:
         # nodeShell = self.generateShell(node)
@@ -1925,9 +1944,50 @@ class SheetTree(object):
         #  for seamEdge in node.seam_edges:
         #    self.makeSeamFace(seamEdge, node)
     FreeCAD.Console.PrintLog("ufo finish face" + str(node.idx +1) + "\n")
-    return (theShell + nodeShell, theFoldLines + nodeFoldLines)
+    return (theShell + nodeShell, theFoldLines + nodeFoldLines, drawingVerts + nodeVerts)
 
 
+
+  def prepareDrawing(self, folds, ufoShape):
+
+    import Draft
+
+    def traversNodeNumbers(node):
+      for n_node in node.child_list:
+        traversNodeNumbers(n_node)
+      if node.node_type == 'Bend':
+        text = Draft.makeText([str(node.bendNumber)],point=node.foldVertex1.Point)
+        text.Label = 'Bend' + str(node.bendNumber)
+        bNums.addObject(text)
+        if FreeCAD.GuiUp:
+          text.ViewObject.FontSize = 5
+
+    bLines = Draft.makeVisGroup(name="Bends")
+    Draft.autogroup(bLines)
+    if FreeCAD.GuiUp:
+      myVDoc = FreeCADGui.activeDocument()
+      myVDoc.Bends.LineColor = (1.00,0.00,0.00) #red color
+    
+    
+    bLines.Group = []
+    Part.show(folds, 'Foldlines')
+    theDoc = App.activeDocument()
+    bLines.addObject(theDoc.Foldlines)
+
+    bNums = Draft.makeVisGroup(name="Bendnumbers")
+    Draft.autogroup(bLines)
+    if FreeCAD.GuiUp:
+      myVDoc = FreeCADGui.activeDocument()
+      myVDoc.Bendnumbers.LineColor = (0.00,1.00,0.00) #green color
+    traversNodeNumbers(self.root)
+
+
+    #text = Draft.makeText(["Mist"],point=FreeCAD.Vector(1.02944242954,-0.749239265919,0.0))
+    ## text has a Placement
+    
+    ## v.Group.append(text) # does not work for Text
+    #v.addObject(text) # This works!
+  
 
 
 def getUnfold():
@@ -1935,6 +1995,7 @@ def getUnfold():
     normalVect = None
     folds = None
     theName = None
+    drawVerts = None
     mylist = Gui.Selection.getSelectionEx()
     # print 'Die Selektion: ',mylist
     # print 'Zahl der Selektionen: ', mylist.__len__()
@@ -1972,13 +2033,13 @@ def getUnfold():
                 
                 if TheTree.error_code == None:
                   # TheTree.showFaces()
-                  theFaceList, foldLines = TheTree.unfold_tree2(TheTree.root) # traverses the tree-structure
+                  theFaceList, foldLines, drawVerts = TheTree.unfold_tree2(TheTree.root) # traverses the tree-structure
                   if TheTree.error_code == None:
                     unfoldTime = time.clock()
                     FreeCAD.Console.PrintLog("time to run the unfold: "+ str(unfoldTime - endzeit) + "\n")
                     folds = Part.Compound(foldLines)
                     #Part.show(folds, 'Fold_Lines')
-    
+                    
                     try:
                         newShell = Part.Shell(theFaceList)
                     except:
@@ -2010,6 +2071,9 @@ def getUnfold():
                         showTime = time.clock()
                         FreeCAD.Console.PrintLog("Show time: "+ str(showTime - solidTime) + " total time: "+ str(showTime - startzeit) + "\n")
               
+                    if drawVerts is not None:
+                      TheTree.prepareDrawing(folds, resPart)
+    
               if TheTree.error_code is not None:
                 FreeCAD.Console.PrintError("Error "+ unfold_error[TheTree.error_code] +
                      " at Face"+ str(TheTree.failed_face_idx+1) + "\n")
@@ -2030,5 +2094,5 @@ if __name__ == '__main__':
   theUnfold, foldLines, nVec, shapeName = getUnfold()
   if theUnfold:
     Part.show(theUnfold, shapeName+'_unfolded')
-    Part.show(foldLines, 'Foldlines')
+    #Part.show(foldLines, 'Foldlines')
   
