@@ -1012,17 +1012,25 @@ class SheetTree(object):
         newNode.bend_dir = "down"
         thick_test = self.__Shape.Faces[face_idx].Surface.Radius - self.__thickness
         newNode.innerRadius = thick_test
+        fMiddleFactor = - self.__thickness
       else:
         newNode.bend_dir = "up"
         thick_test = self.__Shape.Faces[face_idx].Surface.Radius + self.__thickness
         newNode.innerRadius = self.__Shape.Faces[face_idx].Surface.Radius
+        fMiddleFactor = self.__thickness
       newNode.distCenter = thick_test
       # print "Face idx: ", face_idx, " bend_dir: ", newNode.bend_dir
       FreeCAD.Console.PrintLog("Face" + str(face_idx+1) + " Type: " + str(newNode.node_type)+ " bend_dir: "+ str(newNode.bend_dir) + "\n")
 
 
-      # calculate mean point of face:
-      # fixme implement also for cylindric faces
+      # calculate mean point of face also for cylindric faces:
+      # nead a mean point of the face to avoid false counter faces
+      faceMiddle = Base.Vector(0.0,0.0,0.0) # calculating a mean vector
+      for Vvec in self.__Shape.Faces[face_idx].OuterWire.Vertexes:
+          thicknessCorrector = fMiddleFactor * radial_vector(Vvec.Point, s_Center, s_Axis)
+          faceMiddle = faceMiddle.add(Vvec.Point + thicknessCorrector)
+      faceMiddle = faceMiddle.multiply(1.0/len(self.__Shape.Faces[face_idx].OuterWire.Vertexes))
+      #Part.show(Part.makeLine(faceMiddle, faceMiddle + 2*ext_Vec), 'faceMiddle'+str(face_idx))
 
       # Search the face at the opposite site of the sheet:
       #for i in range(len(such_list)):
@@ -1033,16 +1041,29 @@ class SheetTree(object):
           dist_c = vF_vert.distanceToLine (s_Center, s_Axis) - thick_test
           if (dist_c > self.cFaceTol) or (dist_c < -self.cFaceTol):
             counter_found = False
-  
-        if counter_found:
-          # to do calculate mean point of counter face
 
-          #print "found counter Face", such_list[i]+1
-          newNode.c_face_idx = i
-          self.index_list.remove(i)
-          newNode.nfIndexes.append(i)
-          # Part.show(self.__Shape.Faces[newNode.c_face_idx])
-          break
+        if counter_found:
+          # calculate mean point of counter face
+          counterMiddle = Base.Vector(0.0,0.0,0.0) # calculating a mean vector
+          for Vvec in self.__Shape.Faces[i].OuterWire.Vertexes:
+              counterMiddle = counterMiddle.add(Vvec.Point)
+          counterMiddle = counterMiddle.multiply(1.0/len(self.__Shape.Faces[i].OuterWire.Vertexes))
+          
+          distVector = counterMiddle.sub(faceMiddle)
+          counterDistance = distVector.Length
+          
+          if counterDistance < 2*self.__thickness: # 
+            FreeCAD.Console.PrintLog( "found counter-face"+ str(i + 1) + "\n")
+            #print "found counter Face", such_list[i]+1
+            newNode.c_face_idx = i
+            self.index_list.remove(i)
+            newNode.nfIndexes.append(i)
+            # Part.show(self.__Shape.Faces[newNode.c_face_idx])
+            break
+          else:
+            counter_found = False
+            FreeCAD.Console.PrintLog("faceMiddle: " + str(faceMiddle) + " counterMiddle: "+ str(counterMiddle) + "\n")
+
 
       if not counter_found:
         newNode.analysis_ok = False
