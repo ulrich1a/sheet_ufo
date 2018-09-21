@@ -616,7 +616,7 @@ class SheetTree(object):
             
       maxDistance = 1000
       oppoPoint = None
-      print 'need to check Face', str(fIdx+1), ' with ', len(self.f_list[fIdx].Vertexes)
+      print ('need to check Face', str(fIdx+1), ' with ', len(self.f_list[fIdx].Vertexes))
       for theVert in self.f_list[fIdx].Vertexes:
         # need to check if theVert has 
         if self.isVertOpposite(theVert, theNode):
@@ -626,7 +626,7 @@ class SheetTree(object):
             oppoPoint = theVert.Point
             
       if oppoPoint is None:
-        print ' error need always an opposite point in a side face!'
+        print (' error need always an opposite point in a side face!')
         # fix me: need a proper error condition.
       
       #vec1 = Base.Vector(theNode.axis.x, theNode.axis.y, theNode.axis.z) # make a copy
@@ -666,7 +666,7 @@ class SheetTree(object):
             
       maxDistance = 1000
       oppoPoint = None
-      print 'need to check Face', str(fIdx+1), ' with ', len(self.f_list[fIdx].Vertexes)
+      print ('need to check Face', str(fIdx+1), ' with ', len(self.f_list[fIdx].Vertexes))
       for theVert in self.f_list[fIdx].Vertexes:
         # need to check if theVert has 
         if self.isVertOpposite(theVert, theNode):
@@ -676,7 +676,7 @@ class SheetTree(object):
             oppoPoint = theVert.Point
             
       if oppoPoint is None:
-        print ' error need always an opposite point in a side face!'
+        print (' error need always an opposite point in a side face!')
         # fix me: need a proper error condition.
       #vec1 = Base.Vector(radVector.x, radVector.y, radVector.z) # make a copy
       vec1 = (oppoPoint - origin).normalize()
@@ -1105,7 +1105,7 @@ class SheetTree(object):
               flagStr = flagStr + 'p1'
               origVec = P_edge.Vertexes[1].Point
               unbendVec = origVec
-          print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
+          print ('make vertexDict: ', flagStr, ' ', str(face_idx+1))
           newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
           vertDictIdx += 1
   
@@ -1118,13 +1118,13 @@ class SheetTree(object):
               flagStr = flagStr + 'p'
               origVec = pVert.Point
               unbendVec = origVec
-          print 'make vertexDict: ', flagStr, ' ', str(face_idx+1)
+          print ('make vertexDict: ', flagStr, ' ', str(face_idx+1))
           newNode.vertexDict[vertDictIdx] = flagStr, origVec, unbendVec
           vertDictIdx += 1
       
     # Part.show(self.__Shape.Faces[newNode.c_face_idx])
     # Part.show(self.__Shape.Faces[newNode.idx])
-    if newNode.c_face_idx == None:
+    if newNode.c_face_idx is None:
       newNode.analysis_ok = False
       newNode.error_code = 13 # Analysis: counter face not found
       self.error_code = 13
@@ -1141,7 +1141,7 @@ class SheetTree(object):
     #  Part.show(nFace)
 
 
-    if P_node == None:
+    if P_node is None:
       self.root = newNode
     else:
       P_node.child_list.append(newNode)
@@ -1223,7 +1223,7 @@ class SheetTree(object):
         if nextSearch is not None:
           result = nextSearch
           break
-    if result<>None:
+    if result is not None:
       FreeCAD.Console.PrintLog("This is the result: "+ str(result.idx) + "\n")
     else:
       FreeCAD.Console.PrintLog("This is the result: None\n")
@@ -1304,7 +1304,7 @@ class SheetTree(object):
     for aWire in fWireList:
         uEdge = None
         idxList, closedW = self.sortEdgesTolerant(aWire.Edges)
-        print 'Wire', str(fIdx+1), ' has ', len(idxList), ' edges, closed: ', closedW
+        print ('Wire', str(fIdx+1), ' has ', len(idxList), ' edges, closed: ', closedW)
         
         eList = []  # is the list of unbend edges
         j=0
@@ -1341,7 +1341,7 @@ class SheetTree(object):
           if mode == 'side':
             if vert0Idx is None:
               vert0Idx = len(bend_node.vertexDict)
-              print 'got additional side vertex0: ', vert0Idx, ' ', fEdge.Vertexes[0].Point
+              print ('got additional side vertex0: ', vert0Idx, ' ', fEdge.Vertexes[0].Point)
               flags0 = ''
               origVec = fEdge.Vertexes[0].Point
               uVert0 = unbendPoint(origVec)
@@ -1349,7 +1349,7 @@ class SheetTree(object):
             if vertexCount >1:
               if vert1Idx is None:
                 vert1Idx = len(bend_node.vertexDict)
-                print 'got additional side vertex1: ', vert1Idx, ' ', fEdge.Vertexes[1].Point
+                print ('got additional side vertex1: ', vert1Idx, ' ', fEdge.Vertexes[1].Point)
                 flags1 = ''
                 origVec = fEdge.Vertexes[1].Point
                 uVert1 = unbendPoint(origVec)
@@ -1585,7 +1585,7 @@ class SheetTree(object):
       except:
           #theFace = Part.makeFilledFace(wires)
           theFace = faces[0]
-          print 'got execption'
+          print ('got execption')
           #Part.show(theFace, 'exception')
     keyList = []
     for key in bend_node.edgeDict:
@@ -1603,7 +1603,7 @@ class SheetTree(object):
     '''
     eIndex = 0 
     newEdgeList = []
-    idxList = range(len(myEdgeList))
+    idxList = list(range(len(myEdgeList)))
     newIdxList = [eIndex]
     newEdgeList.append(myEdgeList[eIndex])
     idxList.remove(eIndex)
@@ -1705,7 +1705,7 @@ class SheetTree(object):
         wireList.append(edgeL)
         #Part.show(lWire, 'foldLine'+str(bend_node.idx +1)+'_')
       else:
-        print 'fix me! make errorcondition'
+        print ('fix me! make errorcondition')
         
     return wireList
   
@@ -1894,7 +1894,7 @@ class SheetTree(object):
     theFoldLines = []
     nodeFoldLines = []
     for n_node in node.child_list:
-      if self.error_code == None:
+      if self.error_code is None:
         shell, foldLines = self.unfold_tree2(n_node)
         theShell = theShell + shell
         theFoldLines = theFoldLines + foldLines
@@ -1906,11 +1906,11 @@ class SheetTree(object):
       for fold in theFoldLines:
         fold.rotate(self.f_list[node.idx].Surface.Center,node.axis,math.degrees(-node.bend_angle))
         fold.translate(trans_vec)
-      if self.error_code == None:
+      if self.error_code is None:
         #nodeShell = self.generateBendShell(node)
         nodeShell, nodeFoldLines = self.generateBendShell2(node)
     else:
-      if self.error_code == None:
+      if self.error_code is None:
         # nodeShell = self.generateShell(node)
         for idx in node.nfIndexes:
           nodeShell.append(self.f_list[idx].copy())
@@ -1958,15 +1958,15 @@ def getUnfold():
               #print f_number
               startzeit = time.clock()
               TheTree = SheetTree(o.Object.Shape, f_number) # initializes the tree-structure
-              if TheTree.error_code == None:
+              if TheTree.error_code is None:
                 TheTree.Bend_analysis(f_number, None) # traverses the shape and builds the tree-structure
                 endzeit = time.clock()
                 FreeCAD.Console.PrintLog("Analytical time: "+ str(endzeit-startzeit) + "\n")
                 
-                if TheTree.error_code == None:
+                if TheTree.error_code is None:
                   # TheTree.showFaces()
                   theFaceList, foldLines = TheTree.unfold_tree2(TheTree.root) # traverses the tree-structure
-                  if TheTree.error_code == None:
+                  if TheTree.error_code is None:
                     unfoldTime = time.clock()
                     FreeCAD.Console.PrintLog("time to run the unfold: "+ str(unfoldTime - endzeit) + "\n")
                     folds = Part.Compound(foldLines)
