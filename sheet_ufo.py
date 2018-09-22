@@ -245,11 +245,12 @@ class Simple_node(object):
 
 
 class SheetTree(object):
-  def __init__(self, TheShape, f_idx):
+  def __init__(self, TheShape, f_idx, theDocument):
     self.cFaceTol = 0.002 # tolerance to detect counter-face vertices
     # this high tolerance was needed for more real parts
     self.root = None # make_new_face_node adds the root node if parent_node == None
     self.__Shape = TheShape.copy()
+    self.theDoc = theDocument # the active document, where the handled objects are stored in.
     self.error_code = None
     self.failed_face_idx = None
     self.bendCounter = 0 # Counter to give a bend a number, stored in bendNumber in the tree structure
@@ -1971,36 +1972,125 @@ class SheetTree(object):
 
   def prepareDrawing(self, folds, ufoShape):
 
-    import Draft
+    import Draft, Spreadsheet
 
     def traversNodeNumbers(node):
       for n_node in node.child_list:
         traversNodeNumbers(n_node)
       if node.node_type == 'Bend':
-        text = Draft.makeText([str(node.bendNumber)],point=node.foldVertex1.Point)
+        textVert = node.foldVertex1
+        if doRotate:
+          textVert.rotate(self.root.facePosi,theAxis,math.degrees(-angle))
+        textVert.translate(-self.root.facePosi)
+
+        text = Draft.makeText([str(node.bendNumber)],point=textVert.Point)
         text.Label = 'Bend' + str(node.bendNumber)
         bNums.addObject(text)
-        if FreeCAD.GuiUp:
-          text.ViewObject.FontSize = 5
+        text.ViewObject.FontSize = 5
+        text.ViewObject.TextColor = (0.00,1.00,0.00) #green color
+        radiusQuantity = FreeCAD.Units.parseQuantity(str(node.innerRadius)+' mm')
+        radiusUnit = radiusQuantity.UserString.split(' ')[1]
+        mySheet.set('A'+str(node.bendNumber+1), str(node.bendNumber))
+        mySheet.set('B'+str(node.bendNumber+1), str(node.innerRadius)+' mm')
+        mySheet.setDisplayUnit('B'+str(node.bendNumber+1), radiusUnit)
+        mySheet.set('C'+str(node.bendNumber+1), node.bend_dir)
+        mySheet.set('D'+str(node.bendNumber+1), str(node.k_Factor/2.0)) 
 
-    bLines = Draft.makeVisGroup(name="Bends")
+
+    # calculate the rotation in order to place the drawing data into the xy-plane
+    planeVec = Base.Vector(0.0, 0.0, 1.0) # normal of the xy-plane
+    if (not equal_vector(self.root.axis, planeVec)) and (not equal_vector(self.root.axis, -planeVec)):
+      myVec = self.root.axis # normal of the first face = normal of drawing data
+      theAxis = planeVec.cross(myVec) # rotation axis
+      angle = math.atan2(planeVec.cross(myVec).dot(theAxis), planeVec.dot(myVec))
+      doRotate = True
+    else:
+      theAxis = Base.Vector(1.0, 0.0, 0.0)
+      angle = 0.0
+      doRotate = False
+    # calculate the translation in order to place the drawing data into the xy-plane
+    transVec = self.root.facePosi
+    #print ('Posi '+ str(self.root.facePosi)+ ' Axis '+ str(theAxis)+ ' angle '+ str(angle))
+    
+    if doRotate:
+      #print ('Posi ', self.root.facePosi, ' Axis ', theAxis, ' angle ', angle)
+      folds.rotate(self.root.facePosi,theAxis,math.degrees(-angle))
+    folds.translate(-self.root.facePosi)
+
+
+
+    bLines = Draft.makeVisGroup(name="BEND")
     Draft.autogroup(bLines)
-    if FreeCAD.GuiUp:
-      myVDoc = FreeCADGui.activeDocument()
-      myVDoc.Bends.LineColor = (1.00,0.00,0.00) #red color
-    
-    
+    bLines.ViewObject.LineColor = (1.00,0.00,0.00) #red color
     bLines.Group = []
-    Part.show(folds, 'Foldlines')
-    theDoc = App.activeDocument()
-    bLines.addObject(theDoc.Foldlines)
+    fLineObject = self.theDoc.addObject("Part::Feature")
+    fLineObject.Label = 'Bendlines'
+    fLineObject.Shape = folds
+    bLines.addObject(fLineObject)
 
-    bNums = Draft.makeVisGroup(name="Bendnumbers")
+    mySheet = self.theDoc.addObject('Spreadsheet::Sheet','Bendtable')
+    mySheet.set('A1', 'Bendlabel')
+    mySheet.set('B1', 'Radius')
+    mySheet.set('C1', 'Direction')
+    mySheet.set('D1', 'k-Factor')
+
+
+    bNums = Draft.makeVisGroup(name="Bendlabels")
     Draft.autogroup(bLines)
-    if FreeCAD.GuiUp:
-      myVDoc = FreeCADGui.activeDocument()
-      myVDoc.Bendnumbers.LineColor = (0.00,1.00,0.00) #green color
     traversNodeNumbers(self.root)
+
+    #search for the top face in the ufoShape
+    faceList = []
+    gotFace = False
+    such_list = list(range(len(ufoShape.Faces)))
+    # search for the top face
+    for i in such_list:
+      face_found = True
+      for F_vert in ufoShape.Faces[i].Vertexes:
+        #vF_vert = F_vert.Point
+        dist_v = F_vert.Point.distanceToPlane (self.root.facePosi, self.root.axis)
+        # print "counter face distance: ", dist_v + self.__thickness
+        #print 'checking Face', str(i+1), ' dist_v: ', dist_v
+        if (dist_v > self.cFaceTol) or (dist_v < -self.cFaceTol):
+            face_found = False
+
+      if face_found:
+          faceList.append(i)
+          gotFace = True
+    
+    if gotFace:
+      if len(faceList) > 1: # check if more than one face was detected!
+        print ('fix me, more than one face found')
+        
+    drawingFace = ufoShape.Faces[faceList[0]].copy()
+    if doRotate:
+      drawingFace.rotate(self.root.facePosi,theAxis,math.degrees(-angle))
+    drawingFace.translate(-self.root.facePosi)
+    #Part.show(drawingFace, 'TheFace')
+    #Part.show(drawingFace.OuterWire, 'TheWire')
+
+    outProf_VG = Draft.makeVisGroup(name="OUTER_PROFILE")
+    Draft.autogroup(outProf_VG)
+    #if FreeCAD.GuiUp:
+    outProf_VG.ViewObject.LineColor = (0.00,0.00,1.00) #blue color
+    outProf_VG.Group = []
+    outProfObj = self.theDoc.addObject("Part::Feature")
+    outProfObj.Label = 'Outer_Profile_Lines'
+    outProfObj.Shape = drawingFace.OuterWire
+    outProf_VG.addObject(outProfObj)
+    
+    
+    if len(drawingFace.Wires) >1:
+      #Part.show(Part.Compound(drawingFace.Wires[1:]), 'TheHoles')
+      intProf_VG = Draft.makeVisGroup(name="INTERIOR_PROFILES")
+      Draft.autogroup(intProf_VG)
+      #if FreeCAD.GuiUp:
+      intProf_VG.ViewObject.LineColor = (0.00,0.00,0.80) # color
+      intProf_VG.Group = []
+      intProfObj = self.theDoc.addObject("Part::Feature")
+      intProfObj.Label = 'Interior_Profile_Lines'
+      intProfObj.Shape = Part.Compound(drawingFace.Wires[1:])
+      intProf_VG.addObject(intProfObj)
 
 
     #text = Draft.makeText(["Mist"],point=FreeCAD.Vector(1.02944242954,-0.749239265919,0.0))
@@ -2046,7 +2136,7 @@ def getUnfold():
               f_number = int(o.SubElementNames[0].lstrip('Face'))-1
               #print f_number
               startzeit = time.clock()
-              TheTree = SheetTree(o.Object.Shape, f_number) # initializes the tree-structure
+              TheTree = SheetTree(o.Object.Shape, f_number, o.Document) # initializes the tree-structure
               if TheTree.error_code == None:
                 TheTree.Bend_analysis(f_number, None) # traverses the shape and builds the tree-structure
                 endzeit = time.clock()
